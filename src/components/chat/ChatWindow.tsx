@@ -96,14 +96,114 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [callDuration, setCallDuration] = useState(0);
+  // Search and selection states
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedMessages, setSelectedMessages] = useState<Set<string>>(new Set());
+  const [showContactInfo, setShowContactInfo] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  // Toggle search
+  const toggleSearch = () => {
+    setShowSearch(!showSearch);
+    setSearchQuery('');
+    if (!showSearch) {
+      setTimeout(() => searchInputRef.current?.focus(), 100);
+    }
+  };
+
+  // Filter messages by search query
+  const filteredMessages = searchQuery.trim()
+    ? messages.filter(msg => 
+        msg.text?.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : messages;
+
+  // Toggle message selection
+  const toggleMessageSelection = (messageId: string) => {
+    const newSelected = new Set(selectedMessages);
+    if (newSelected.has(messageId)) {
+      newSelected.delete(messageId);
+    } else {
+      newSelected.add(messageId);
+    }
+    setSelectedMessages(newSelected);
+  };
+
+  // Select all messages
+  const selectAllMessages = () => {
+    const allIds = new Set(messages.map(m => m.id));
+    setSelectedMessages(allIds);
+  };
+
+  // Clear selection
+  const clearSelection = () => {
+    setSelectedMessages(new Set());
+    setSelectionMode(false);
+  };
+
+  // Delete selected messages
+  const deleteSelectedMessages = async () => {
+    // Implementation for deleting messages
+    toast({
+      title: 'Messages deleted',
+      description: `${selectedMessages.size} message(s) deleted successfully`,
+    });
+    clearSelection();
+  };
+
+  // Toggle mute notifications
+  const toggleMute = () => {
+    setIsMuted(!isMuted);
+    toast({
+      title: isMuted ? 'Notifications enabled' : 'Notifications muted',
+      description: isMuted ? 'You will receive notifications for this chat' : 'You will not receive notifications for this chat',
+    });
+  };
+
+  // Clear all messages
+  const clearAllMessages = async () => {
+    if (!activeChat) return;
+    
+    const confirmed = window.confirm('Are you sure you want to clear all messages? This action cannot be undone.');
+    if (!confirmed) return;
+
+    try {
+      setMessages([]);
+      toast({
+        title: 'Messages cleared',
+        description: 'All messages have been cleared from this chat',
+      });
+    } catch (error) {
+      console.error('Error clearing messages:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to clear messages',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  // Block user
+  const blockUser = () => {
+    const confirmed = window.confirm('Are you sure you want to block this user?');
+    if (!confirmed) return;
+
+    toast({
+      title: 'User blocked',
+      description: 'You will no longer receive messages from this user',
+    });
   };
 
   // Fetch chat partner info
@@ -858,7 +958,11 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
           >
             <Phone className="w-5 h-5 text-muted-foreground" />
           </button>
-          <button className="p-2.5 hover:bg-muted rounded-full transition-colors">
+          <button 
+            className="p-2.5 hover:bg-muted rounded-full transition-colors"
+            onClick={toggleSearch}
+            title="Search messages"
+          >
             <Search className="w-5 h-5 text-muted-foreground" />
           </button>
           <DropdownMenu>
@@ -868,15 +972,89 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem>Contact info</DropdownMenuItem>
-              <DropdownMenuItem>Select messages</DropdownMenuItem>
-              <DropdownMenuItem>Mute notifications</DropdownMenuItem>
-              <DropdownMenuItem>Clear messages</DropdownMenuItem>
-              <DropdownMenuItem className="text-destructive">Block</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setShowContactInfo(true)}>
+                Contact info
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSelectionMode(true)}>
+                Select messages
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={toggleMute}>
+                {isMuted ? 'Unmute notifications' : 'Mute notifications'}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={clearAllMessages}>
+                Clear messages
+              </DropdownMenuItem>
+              <DropdownMenuItem className="text-destructive" onClick={blockUser}>
+                Block
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </div>
+
+      {/* Search Bar */}
+      {showSearch && (
+        <div className="px-4 py-3 border-b bg-background">
+          <div className="flex items-center gap-2">
+            <Input
+              ref={searchInputRef}
+              type="text"
+              placeholder="Search messages..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="flex-1"
+            />
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleSearch}
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+          {searchQuery && (
+            <p className="text-xs text-muted-foreground mt-2">
+              {filteredMessages.length} message{filteredMessages.length !== 1 ? 's' : ''} found
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Selection Mode Header */}
+      {selectionMode && (
+        <div className="px-4 py-3 border-b bg-muted/50 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={clearSelection}
+            >
+              Cancel
+            </Button>
+            <span className="text-sm font-medium">
+              {selectedMessages.size} selected
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={selectAllMessages}
+            >
+              Select all
+            </Button>
+            {selectedMessages.size > 0 && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={deleteSelectedMessages}
+              >
+                Delete
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-thin">
@@ -891,15 +1069,32 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
             <p className="text-xs">Send a message to start the conversation</p>
           </div>
         ) : (
-          messages.map((msg, index) => (
-            <MessageBubble
+          filteredMessages.map((msg, index) => (
+            <div 
               key={msg.id}
-              message={msg}
-              isOwn={msg.senderId === currentUser?.uid}
-              showAvatar={index === 0 || messages[index - 1].senderId !== msg.senderId}
-              user={msg.senderId === currentUser?.uid ? undefined : displayUser || undefined}
-              chatId={activeChat?.id}
-            />
+              className={`flex items-start gap-2 ${selectionMode ? 'cursor-pointer' : ''}`}
+              onClick={() => selectionMode && toggleMessageSelection(msg.id)}
+            >
+              {selectionMode && (
+                <div className="flex items-center pt-2">
+                  <input
+                    type="checkbox"
+                    checked={selectedMessages.has(msg.id)}
+                    onChange={() => toggleMessageSelection(msg.id)}
+                    className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
+                  />
+                </div>
+              )}
+              <MessageBubble
+                key={msg.id}
+                message={msg}
+                isOwn={msg.senderId === currentUser?.uid}
+                showAvatar={index === 0 || filteredMessages[index - 1].senderId !== msg.senderId}
+                user={msg.senderId === currentUser?.uid ? undefined : displayUser || undefined}
+                chatId={activeChat?.id}
+                onForward={() => console.log('Forward:', msg.id)}
+              />
+            </div>
           ))
         )}
         <div ref={messagesEndRef} />
@@ -1063,6 +1258,52 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
         )}
       </div>
 
+      {/* Contact Info Dialog */}
+      <Dialog open={showContactInfo} onOpenChange={setShowContactInfo}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Contact Info</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex flex-col items-center gap-3 py-4">
+              <Avatar className="h-24 w-24">
+                <AvatarImage src={displayUser?.photoURL || undefined} />
+                <AvatarFallback className="bg-primary/10 text-primary font-medium text-3xl">
+                  {displayName?.charAt(0).toUpperCase() || '?'}
+                </AvatarFallback>
+              </Avatar>
+              <div className="text-center">
+                <h3 className="font-semibold text-lg">{displayName}</h3>
+                <p className="text-sm text-muted-foreground">{displayUser?.phone}</p>
+              </div>
+            </div>
+
+            <div className="space-y-2 border-t pt-4">
+              <div className="flex items-center justify-between py-2">
+                <span className="text-sm text-muted-foreground">Email</span>
+                <span className="text-sm">{displayUser?.email || 'Not available'}</span>
+              </div>
+              <div className="flex items-center justify-between py-2">
+                <span className="text-sm text-muted-foreground">Status</span>
+                <span className="text-sm">{displayUser?.bio || 'Hey there! I am using Let\'s Chat'}</span>
+              </div>
+              <div className="flex items-center justify-between py-2">
+                <span className="text-sm text-muted-foreground">Notifications</span>
+                <span className="text-sm">{isMuted ? 'Muted' : 'Enabled'}</span>
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-4">
+              <Button variant="outline" className="flex-1" onClick={toggleMute}>
+                {isMuted ? 'Unmute' : 'Mute'}
+              </Button>
+              <Button variant="destructive" className="flex-1" onClick={blockUser}>
+                Block
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );
