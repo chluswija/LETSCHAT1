@@ -21,7 +21,8 @@ import {
   Loader2,
   MessageCircle,
   X,
-  StopCircle
+  StopCircle,
+  AlertCircle
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -34,6 +35,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 import { MessageBubble } from './MessageBubble';
 import { Message, User } from '@/types/chat';
 import { formatDistanceToNow } from 'date-fns';
@@ -74,6 +82,7 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState<string | null>(null);
+  const [showCallDialog, setShowCallDialog] = useState<'voice' | 'video' | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -468,6 +477,15 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // Handle call initiation
+  const handleCall = (type: 'voice' | 'video') => {
+    if (!displayUser) {
+      toast({ title: 'Cannot make call', description: 'User information not available', variant: 'destructive' });
+      return;
+    }
+    setShowCallDialog(type);
+  };
+
   // Format phone number for display
   const formatPhoneDisplay = (phone: string) => {
     if (!phone) return '';
@@ -547,10 +565,18 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
           </p>
         </div>
         <div className="flex items-center gap-1">
-          <button className="p-2.5 hover:bg-muted rounded-full transition-colors">
+          <button 
+            className="p-2.5 hover:bg-muted rounded-full transition-colors" 
+            onClick={() => handleCall('video')}
+            title="Video call"
+          >
             <Video className="w-5 h-5 text-muted-foreground" />
           </button>
-          <button className="p-2.5 hover:bg-muted rounded-full transition-colors">
+          <button 
+            className="p-2.5 hover:bg-muted rounded-full transition-colors" 
+            onClick={() => handleCall('voice')}
+            title="Voice call"
+          >
             <Phone className="w-5 h-5 text-muted-foreground" />
           </button>
           <button className="p-2.5 hover:bg-muted rounded-full transition-colors">
@@ -745,6 +771,89 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
           </div>
         )}
       </div>
+
+      {/* Call Dialog */}
+      <Dialog open={showCallDialog !== null} onOpenChange={(open) => !open && setShowCallDialog(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {showCallDialog === 'video' ? (
+                <>
+                  <Video className="w-5 h-5 text-primary" />
+                  Video Call
+                </>
+              ) : (
+                <>
+                  <Phone className="w-5 h-5 text-primary" />
+                  Voice Call
+                </>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="py-6">
+            <div className="flex flex-col items-center gap-4">
+              <Avatar className="h-24 w-24 ring-4 ring-primary/20">
+                <AvatarImage src={displayUser?.photoURL || undefined} />
+                <AvatarFallback className="bg-primary/10 text-primary text-3xl">
+                  {displayName?.charAt(0).toUpperCase() || '?'}
+                </AvatarFallback>
+              </Avatar>
+              <div className="text-center">
+                <h3 className="text-xl font-semibold text-foreground">{displayName}</h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {displayUser?.phone && formatPhoneDisplay(displayUser.phone)}
+                </p>
+              </div>
+
+              <div className="w-full p-4 bg-amber-500/10 rounded-lg border border-amber-500/20 mt-4">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-medium text-foreground">Calling feature coming soon</p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {showCallDialog === 'video' ? 'Video' : 'Voice'} calling will be available in a future update.
+                      For now, you can continue messaging.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => setShowCallDialog(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="flex-1"
+              onClick={() => {
+                toast({
+                  title: 'Feature coming soon',
+                  description: `${showCallDialog === 'video' ? 'Video' : 'Voice'} calling will be available soon!`,
+                });
+                setShowCallDialog(null);
+              }}
+            >
+              {showCallDialog === 'video' ? (
+                <>
+                  <Video className="w-4 h-4 mr-2" />
+                  Start Video Call
+                </>
+              ) : (
+                <>
+                  <Phone className="w-4 h-4 mr-2" />
+                  Start Voice Call
+                </>
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
