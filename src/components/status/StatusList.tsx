@@ -185,7 +185,7 @@ export const StatusList = () => {
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col relative">
       {/* My Status */}
       <div className="p-4 border-b border-border">
         <div 
@@ -270,6 +270,17 @@ export const StatusList = () => {
             <p className="text-sm">Status updates from contacts will appear here</p>
           </div>
         )}
+      </div>
+
+      {/* Floating Action Button */}
+      <div className="absolute bottom-6 right-6">
+        <button 
+          onClick={() => setShowCreateDialog(true)}
+          className="w-14 h-14 bg-primary hover:bg-primary/90 text-primary-foreground rounded-full shadow-lg shadow-primary/25 flex items-center justify-center transition-all hover:scale-105"
+          title="Add Status"
+        >
+          <Plus className="w-6 h-6" />
+        </button>
       </div>
 
       {/* Create Status Dialog */}
