@@ -98,7 +98,7 @@ export const AddContactDialog = ({ open, onOpenChange, onContactAdded }: AddCont
 
     const debounceTimer = setTimeout(searchUser, 500);
     return () => clearTimeout(debounceTimer);
-  }, [phoneNumber, currentUser?.uid]);
+  }, [phoneNumber, currentUser?.uid, contactName]);
 
   // Save contact (even if user not found on platform yet)
   const saveContact = async () => {
@@ -112,20 +112,38 @@ export const AddContactDialog = ({ open, onOpenChange, onContactAdded }: AddCont
       const contactsRef = collection(db, 'users', currentUser.uid, 'contacts');
       const normalizedPhone = phoneNumber.replace(/[\s\-()]/g, '');
       
-      // Check if contact already exists
+      console.log('Attempting to save contact:', {
+        name: contactName.trim(),
+        phone: normalizedPhone,
+        userId: foundUser?.uid || `phone_${normalizedPhone}`
+      });
+      
+      // Check if contact already exists (improved logic)
       const existingContacts = await getDocs(contactsRef);
       let alreadyExists = false;
+      let existingContactName = '';
       
       existingContacts.forEach((docSnap) => {
         const data = docSnap.data();
         const existingPhone = (data.phone || '').replace(/[\s\-()]/g, '');
-        if (existingPhone === normalizedPhone || (foundUser && data.userId === foundUser.uid)) {
+        
+        // Check for exact userId match OR exact phone match
+        if (foundUser && data.userId === foundUser.uid) {
           alreadyExists = true;
+          existingContactName = data.name;
+        } else if (!foundUser && existingPhone === normalizedPhone) {
+          // For contacts not on platform, check phone number
+          alreadyExists = true;
+          existingContactName = data.name;
         }
       });
 
       if (alreadyExists) {
-        toast({ title: 'Contact already exists', variant: 'destructive' });
+        toast({ 
+          title: 'Contact already exists', 
+          description: `Already saved as "${existingContactName}"`,
+          variant: 'destructive' 
+        });
         setIsSaving(false);
         return;
       }
@@ -140,28 +158,34 @@ export const AddContactDialog = ({ open, onOpenChange, onContactAdded }: AddCont
         onPlatform: !!foundUser,
       };
       
-      console.log('Saving contact with name:', contactName.trim());
-      await addDoc(contactsRef, contactData);
+      console.log('Saving contact data:', contactData);
+      const docRef = await addDoc(contactsRef, contactData);
+      console.log('Contact saved successfully with ID:', docRef.id);
 
       // If user is on platform, add to contacts array
       if (foundUser?.uid) {
-        const userRef = doc(db, 'users', currentUser.uid);
-        await updateDoc(userRef, {
-          contacts: arrayUnion(foundUser.uid),
-        });
+        try {
+          const userRef = doc(db, 'users', currentUser.uid);
+          await updateDoc(userRef, {
+            contacts: arrayUnion(foundUser.uid),
+          });
 
-        // Update local user state
-        setUser({
-          ...currentUser,
-          contacts: [...(currentUser.contacts || []), foundUser.uid],
-        });
+          // Update local user state
+          setUser({
+            ...currentUser,
+            contacts: [...(currentUser.contacts || []), foundUser.uid],
+          });
+        } catch (err) {
+          console.error('Error updating user contacts array:', err);
+          // Continue anyway, subcollection save was successful
+        }
       }
 
       toast({ 
         title: 'Contact saved!', 
         description: foundUser 
-          ? `${contactName} has been added to your contacts` 
-          : `${contactName} saved. You can chat when they join LetsChat.`
+          ? `${contactName} added to your contacts` 
+          : `${contactName} saved. You can chat when they join.`
       });
       
       if (foundUser) {
@@ -170,9 +194,13 @@ export const AddContactDialog = ({ open, onOpenChange, onContactAdded }: AddCont
       
       onOpenChange(false);
       resetForm();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving contact:', error);
-      toast({ title: 'Failed to save contact', variant: 'destructive' });
+      toast({ 
+        title: 'Failed to save contact', 
+        description: error?.message || 'Please try again',
+        variant: 'destructive' 
+      });
     } finally {
       setIsSaving(false);
     }
