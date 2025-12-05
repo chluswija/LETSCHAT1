@@ -5,6 +5,20 @@ import { formatDistanceToNow } from 'date-fns';
 import { useAuthStore } from '@/store/authStore';
 import { cn } from '@/lib/utils';
 
+// Format phone number for display
+const formatPhoneDisplay = (phone: string) => {
+  if (!phone) return '';
+  const cleaned = phone.replace(/[^\d+]/g, '');
+  if (cleaned.startsWith('+')) {
+    if (cleaned.length > 10) {
+      const countryCode = cleaned.slice(0, cleaned.length - 10);
+      const rest = cleaned.slice(-10);
+      return `${countryCode} ${rest.slice(0, 3)} ${rest.slice(3, 6)} ${rest.slice(6)}`;
+    }
+  }
+  return phone;
+};
+
 interface ChatListItemProps {
   chat: Chat;
   user: User;
@@ -98,7 +112,9 @@ export const ChatListItem = ({ chat, user, isActive, onClick, style }: ChatListI
       {/* Content */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between mb-0.5">
-          <h3 className="font-medium text-foreground truncate">{user.displayName}</h3>
+          <h3 className="font-medium text-foreground truncate">
+            {user.displayName || formatPhoneDisplay(user.phone || '')}
+          </h3>
           <span className="text-xs text-muted-foreground flex-shrink-0 ml-2">
             {lastMessage && formatDistanceToNow(lastMessage.timestamp, { addSuffix: false })}
           </span>

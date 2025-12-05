@@ -12,12 +12,28 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Search, Loader2, UserPlus, MessageCircle } from 'lucide-react';
+import { Search, Loader2, UserPlus, MessageCircle, Phone } from 'lucide-react';
 
 interface NewChatDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
+
+// Format phone number for display
+const formatPhoneDisplay = (phone: string) => {
+  if (!phone) return '';
+  // Remove all non-digits except +
+  const cleaned = phone.replace(/[^\d+]/g, '');
+  if (cleaned.startsWith('+')) {
+    // International format: +1 234 567 8900
+    if (cleaned.length > 10) {
+      const countryCode = cleaned.slice(0, cleaned.length - 10);
+      const rest = cleaned.slice(-10);
+      return `${countryCode} ${rest.slice(0, 3)} ${rest.slice(3, 6)} ${rest.slice(6)}`;
+    }
+  }
+  return phone;
+};
 
 export const NewChatDialog = ({ open, onOpenChange }: NewChatDialogProps) => {
   const { user: currentUser } = useAuthStore();
@@ -27,10 +43,10 @@ export const NewChatDialog = ({ open, onOpenChange }: NewChatDialogProps) => {
   const [isSearching, setIsSearching] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
 
-  // Search for users by email or display name
+  // Search for users by phone number (like WhatsApp)
   useEffect(() => {
     const searchUsers = async () => {
-      if (!searchQuery.trim() || searchQuery.length < 2) {
+      if (!searchQuery.trim() || searchQuery.length < 3) {
         setSearchResults([]);
         return;
       }
@@ -38,42 +54,33 @@ export const NewChatDialog = ({ open, onOpenChange }: NewChatDialogProps) => {
       setIsSearching(true);
       try {
         const usersRef = collection(db, 'users');
-        
-        // Search by email (exact match for now)
-        const emailQuery = query(usersRef, where('email', '==', searchQuery.toLowerCase()));
-        const emailSnapshot = await getDocs(emailQuery);
-        
         const users: User[] = [];
-        emailSnapshot.forEach((doc) => {
-          const userData = { ...doc.data(), uid: doc.id } as User;
-          // Don't show current user
-          if (userData.uid !== currentUser?.uid) {
-            users.push(userData);
-          }
-        });
-
-        // Also try searching by partial email
-        if (users.length === 0 && searchQuery.includes('@')) {
+        
+        // Normalize the search query (remove spaces, dashes)
+        const normalizedQuery = searchQuery.replace(/[\s\-()]/g, '');
+        
+        // Search by phone number (primary method like WhatsApp)
+        if (normalizedQuery.match(/^\+?\d+$/)) {
+          // It's a phone number search
           const allUsersSnapshot = await getDocs(usersRef);
           allUsersSnapshot.forEach((doc) => {
             const userData = { ...doc.data(), uid: doc.id } as User;
+            const userPhone = (userData.phone || '').replace(/[\s\-()]/g, '');
             if (
               userData.uid !== currentUser?.uid &&
-              userData.email.toLowerCase().includes(searchQuery.toLowerCase())
+              userPhone.includes(normalizedQuery)
             ) {
               users.push(userData);
             }
           });
-        }
-
-        // Search by display name
-        if (users.length === 0) {
+        } else {
+          // Search by display name as fallback
           const allUsersSnapshot = await getDocs(usersRef);
           allUsersSnapshot.forEach((doc) => {
             const userData = { ...doc.data(), uid: doc.id } as User;
             if (
               userData.uid !== currentUser?.uid &&
-              userData.displayName.toLowerCase().includes(searchQuery.toLowerCase())
+              userData.displayName?.toLowerCase().includes(searchQuery.toLowerCase())
             ) {
               users.push(userData);
             }
@@ -171,13 +178,14 @@ export const NewChatDialog = ({ open, onOpenChange }: NewChatDialogProps) => {
         <div className="space-y-4">
           {/* Search Input */}
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
-              placeholder="Search by email or name..."
+              placeholder="Enter phone number (e.g. +1234567890)"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-10"
               autoFocus
+              type="tel"
             />
           </div>
 
@@ -204,23 +212,26 @@ export const NewChatDialog = ({ open, onOpenChange }: NewChatDialogProps) => {
                     </Avatar>
                     <div className="flex-1 text-left">
                       <p className="font-medium text-foreground">{user.displayName}</p>
-                      <p className="text-sm text-muted-foreground">{user.email}</p>
+                      <p className="text-sm text-muted-foreground flex items-center gap-1">
+                        <Phone className="w-3 h-3" />
+                        {formatPhoneDisplay(user.phone || '')}
+                      </p>
                     </div>
                     <MessageCircle className="w-5 h-5 text-primary" />
                   </button>
                 ))}
               </div>
-            ) : searchQuery.length >= 2 ? (
+            ) : searchQuery.length >= 3 ? (
               <div className="text-center py-8 text-muted-foreground">
                 <UserPlus className="w-12 h-12 mx-auto mb-3 opacity-30" />
                 <p>No users found</p>
-                <p className="text-sm">Try searching by email address</p>
+                <p className="text-sm">Make sure the phone number is correct</p>
               </div>
             ) : (
               <div className="text-center py-8 text-muted-foreground">
-                <Search className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                <p>Search for users</p>
-                <p className="text-sm">Enter email or name to find contacts</p>
+                <Phone className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                <p>Search by phone number</p>
+                <p className="text-sm">Enter a phone number to start chatting</p>
               </div>
             )}
           </div>

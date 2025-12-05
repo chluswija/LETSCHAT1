@@ -451,8 +451,23 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // Format phone number for display
+  const formatPhoneDisplay = (phone: string) => {
+    if (!phone) return '';
+    const cleaned = phone.replace(/[^\d+]/g, '');
+    if (cleaned.startsWith('+')) {
+      if (cleaned.length > 10) {
+        const countryCode = cleaned.slice(0, cleaned.length - 10);
+        const rest = cleaned.slice(-10);
+        return `${countryCode} ${rest.slice(0, 3)} ${rest.slice(3, 6)} ${rest.slice(6)}`;
+      }
+    }
+    return phone;
+  };
+
   // Use the chat partner or provided otherUser
   const displayUser = otherUser || chatPartner;
+  const displayName = displayUser?.displayName || formatPhoneDisplay(displayUser?.phone || '') || 'Loading...';
 
   if (!activeChat) {
     return (
@@ -489,11 +504,11 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
         <Avatar className="h-10 w-10 cursor-pointer">
           <AvatarImage src={displayUser?.photoURL || undefined} />
           <AvatarFallback className="bg-primary/10 text-primary font-medium">
-            {displayUser?.displayName?.charAt(0).toUpperCase() || '?'}
+            {displayName?.charAt(0).toUpperCase() || '?'}
           </AvatarFallback>
         </Avatar>
         <div className="flex-1 min-w-0 cursor-pointer">
-          <h3 className="font-semibold text-foreground truncate">{displayUser?.displayName || 'Loading...'}</h3>
+          <h3 className="font-semibold text-foreground truncate">{displayName}</h3>
           <p className="text-xs text-muted-foreground">
             {isTyping ? (
               <span className="text-primary flex items-center gap-1">
