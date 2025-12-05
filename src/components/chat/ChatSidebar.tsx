@@ -32,6 +32,7 @@ import { NewChatDialog } from './NewChatDialog';
 import { CreateGroupDialog } from './GroupComponents';
 import { AddContactDialog } from './AddContactDialog';
 import { StatusList } from '../status/StatusList';
+import { CallHistory } from './CallHistory';
 import { Chat, User } from '@/types/chat';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -314,10 +315,8 @@ export const ChatSidebar = () => {
       )}
 
       {activeTab === 'calls' && (
-        <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground">
-          <Phone className="w-12 h-12 mb-3 opacity-30" />
-          <p className="font-medium">Calls</p>
-          <p className="text-sm">Call history will appear here</p>
+        <div className="flex-1 overflow-hidden">
+          <CallHistory />
         </div>
       )}
 

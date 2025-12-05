@@ -623,6 +623,13 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
         }
       );
 
+      // Save receiver name to call document
+      const callRef = doc(db, 'calls', callId);
+      await updateDoc(callRef, {
+        receiverName: displayUser.displayName || displayUser.phone || 'Unknown',
+        receiverPhoto: displayUser.photoURL || null,
+      });
+
       // Get local stream
       const stream = call.getLocalStream();
       setLocalStream(stream);
@@ -659,6 +666,13 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
         setCallStatus('connected');
       });
 
+      // Update call with receiver info
+      const callRef = doc(db, 'calls', incomingCallData.id || '');
+      await updateDoc(callRef, {
+        receiverName: currentUser.displayName || currentUser.phone || 'Unknown',
+        receiverPhoto: currentUser.photoURL || null,
+      });
+
       // Get local stream
       const stream = call.getLocalStream();
       setLocalStream(stream);
@@ -684,6 +698,18 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
   // Handle ending call
   const handleEndCall = async () => {
     if (activeCall) {
+      // Save duration if call was connected
+      if (callStatus === 'connected' && callDuration > 0) {
+        try {
+          const callRef = doc(db, 'calls', activeCall['callId']);
+          await updateDoc(callRef, {
+            duration: callDuration,
+          });
+        } catch (error) {
+          console.error('Error saving call duration:', error);
+        }
+      }
+      
       await activeCall.endCall();
     }
     

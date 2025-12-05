@@ -28,7 +28,7 @@ export class WebRTCCall {
   private peerConnection: RTCPeerConnection | null = null;
   private localStream: MediaStream | null = null;
   private remoteStream: MediaStream | null = null;
-  private callId: string;
+  public callId: string;
   private callType: 'voice' | 'video';
   private currentUserId: string;
   private otherUserId: string;
