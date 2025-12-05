@@ -49,6 +49,7 @@ import {
   serverTimestamp,
   doc,
   getDoc,
+  getDocs,
   updateDoc
 } from 'firebase/firestore';
 
@@ -64,6 +65,7 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [chatPartner, setChatPartner] = useState<User | null>(null);
+  const [savedContactName, setSavedContactName] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
@@ -86,6 +88,7 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
   useEffect(() => {
     if (!activeChat || !currentUser?.uid) {
       setChatPartner(null);
+      setSavedContactName(null);
       return;
     }
 
@@ -94,6 +97,7 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
 
     const fetchPartner = async () => {
       try {
+        // Fetch user data
         const userDoc = await getDoc(doc(db, 'users', otherUserId));
         if (userDoc.exists()) {
           const userData = userDoc.data() as User;
@@ -105,6 +109,19 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
           }
           setChatPartner(userData);
         }
+
+        // Fetch saved contact name
+        const contactsRef = collection(db, 'users', currentUser.uid, 'contacts');
+        const contactQuery = query(contactsRef);
+        const contactsSnap = await getDocs(contactQuery);
+        let foundContactName: string | null = null;
+        contactsSnap.forEach((docSnap) => {
+          const data = docSnap.data();
+          if (data.userId === otherUserId) {
+            foundContactName = data.name;
+          }
+        });
+        setSavedContactName(foundContactName);
       } catch (error) {
         console.error('Error fetching chat partner:', error);
       }
@@ -467,7 +484,8 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
 
   // Use the chat partner or provided otherUser
   const displayUser = otherUser || chatPartner;
-  const displayName = displayUser?.displayName || formatPhoneDisplay(displayUser?.phone || '') || 'Loading...';
+  // Prefer saved contact name, then user's display name, then phone
+  const displayName = savedContactName || displayUser?.displayName || formatPhoneDisplay(displayUser?.phone || '') || 'Loading...';
 
   if (!activeChat) {
     return (

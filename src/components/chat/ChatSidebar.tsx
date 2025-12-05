@@ -14,7 +14,8 @@ import {
   LogOut,
   Plus,
   Loader2,
-  Phone
+  Phone,
+  UserPlus
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -29,6 +30,7 @@ import { collection, query, where, onSnapshot, doc, getDoc, orderBy, updateDoc, 
 import { ChatListItem } from './ChatListItem';
 import { NewChatDialog } from './NewChatDialog';
 import { CreateGroupDialog } from './GroupComponents';
+import { AddContactDialog } from './AddContactDialog';
 import { StatusList } from '../status/StatusList';
 import { Chat, User } from '@/types/chat';
 import { formatDistanceToNow } from 'date-fns';
@@ -38,9 +40,28 @@ export const ChatSidebar = () => {
   const { chats, setChats, activeChat, setActiveChat, searchQuery, setSearchQuery } = useChatStore();
   const [activeTab, setActiveTab] = useState<'chats' | 'status' | 'calls'>('chats');
   const [chatUsers, setChatUsers] = useState<{ [chatId: string]: User }>({});
+  const [savedContacts, setSavedContacts] = useState<{ [userId: string]: string }>({}); // userId -> saved name
   const [isLoading, setIsLoading] = useState(true);
   const [showNewChatDialog, setShowNewChatDialog] = useState(false);
   const [showCreateGroupDialog, setShowCreateGroupDialog] = useState(false);
+  const [showAddContactDialog, setShowAddContactDialog] = useState(false);
+
+  // Fetch saved contacts names
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    const contactsRef = collection(db, 'users', user.uid, 'contacts');
+    const unsubscribe = onSnapshot(contactsRef, (snapshot) => {
+      const contacts: { [userId: string]: string } = {};
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        contacts[data.userId] = data.name;
+      });
+      setSavedContacts(contacts);
+    });
+
+    return () => unsubscribe();
+  }, [user?.uid]);
 
   // Update user online status
   useEffect(() => {
@@ -150,8 +171,19 @@ export const ChatSidebar = () => {
   const filteredChats = chats.filter((chat) => {
     const otherUser = chatUsers[chat.id];
     if (!otherUser) return false;
-    return otherUser.displayName.toLowerCase().includes(searchQuery.toLowerCase());
+    // Also search by saved contact name
+    const savedName = savedContacts[otherUser.uid] || '';
+    return (
+      otherUser.displayName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      savedName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (otherUser.phone || '').includes(searchQuery.replace(/[\s\-()]/g, ''))
+    );
   });
+
+  // Get display name for a user (prefer saved contact name)
+  const getDisplayName = (otherUser: User) => {
+    return savedContacts[otherUser.uid] || otherUser.displayName || otherUser.phone || 'Unknown';
+  };
 
   return (
     <div className="w-full h-full flex flex-col bg-card border-r border-border">
@@ -177,6 +209,10 @@ export const ChatSidebar = () => {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuItem className="gap-2" onClick={() => setShowAddContactDialog(true)}>
+              <UserPlus className="w-4 h-4" />
+              New Contact
+            </DropdownMenuItem>
             <DropdownMenuItem className="gap-2" onClick={() => setShowCreateGroupDialog(true)}>
               <Users className="w-4 h-4" />
               New Group
@@ -260,6 +296,7 @@ export const ChatSidebar = () => {
                   key={chat.id}
                   chat={chat}
                   user={otherUser}
+                  displayName={savedContacts[otherUser.uid]}
                   isActive={activeChat?.id === chat.id}
                   onClick={() => setActiveChat(chat)}
                   style={{ animationDelay: `${index * 0.05}s` }}
@@ -297,10 +334,17 @@ export const ChatSidebar = () => {
       )}
 
       {/* New Chat Dialog */}
-      <NewChatDialog open={showNewChatDialog} onOpenChange={setShowNewChatDialog} />
+      <NewChatDialog 
+        open={showNewChatDialog} 
+        onOpenChange={setShowNewChatDialog} 
+        onNewGroup={() => setShowCreateGroupDialog(true)}
+      />
       
       {/* Create Group Dialog */}
       <CreateGroupDialog open={showCreateGroupDialog} onOpenChange={setShowCreateGroupDialog} />
+      
+      {/* Add Contact Dialog */}
+      <AddContactDialog open={showAddContactDialog} onOpenChange={setShowAddContactDialog} />
     </div>
   );
 };

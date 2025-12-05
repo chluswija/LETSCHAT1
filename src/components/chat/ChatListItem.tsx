@@ -22,17 +22,21 @@ const formatPhoneDisplay = (phone: string) => {
 interface ChatListItemProps {
   chat: Chat;
   user: User;
+  displayName?: string; // Saved contact name overrides user.displayName
   isActive: boolean;
   onClick: () => void;
   style?: React.CSSProperties;
 }
 
-export const ChatListItem = ({ chat, user, isActive, onClick, style }: ChatListItemProps) => {
+export const ChatListItem = ({ chat, user, displayName, isActive, onClick, style }: ChatListItemProps) => {
   const { user: currentUser } = useAuthStore();
   const lastMessage = chat.lastMessage;
   const isTyping = chat.typing[user.uid];
   const isPinned = chat.pinnedBy.includes(currentUser?.uid || '');
   const unreadCount = chat.unreadCount[currentUser?.uid || ''] || 0;
+  
+  // Use saved contact name if provided, otherwise user displayName or phone
+  const nameToShow = displayName || user.displayName || formatPhoneDisplay(user.phone || '');
 
   const getMessagePreview = () => {
     if (!lastMessage) return 'No messages yet';
@@ -101,7 +105,7 @@ export const ChatListItem = ({ chat, user, isActive, onClick, style }: ChatListI
         <Avatar className="h-12 w-12">
           <AvatarImage src={user.photoURL || undefined} />
           <AvatarFallback className="bg-primary/10 text-primary font-medium">
-            {user.displayName.charAt(0).toUpperCase()}
+            {nameToShow.charAt(0).toUpperCase()}
           </AvatarFallback>
         </Avatar>
         {user.online && (
@@ -113,7 +117,7 @@ export const ChatListItem = ({ chat, user, isActive, onClick, style }: ChatListI
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between mb-0.5">
           <h3 className="font-medium text-foreground truncate">
-            {user.displayName || formatPhoneDisplay(user.phone || '')}
+            {nameToShow}
           </h3>
           <span className="text-xs text-muted-foreground flex-shrink-0 ml-2">
             {lastMessage && formatDistanceToNow(lastMessage.timestamp, { addSuffix: false })}
