@@ -187,7 +187,8 @@ export const StatusList = () => {
   return (
     <div className="h-full w-full flex flex-col relative">
       {/* My Status */}
-      <div className="p-4 border-b border-border">
+      <div className="p-4 border-b border-border bg-background">
+        <h2 className="text-sm font-semibold text-muted-foreground mb-3 px-2">MY STATUS</h2>
         <div 
           className="flex items-center gap-3 cursor-pointer hover:bg-muted/50 p-2 rounded-lg transition-colors"
           onClick={() => myStatuses.length > 0 
@@ -204,29 +205,36 @@ export const StatusList = () => {
           <div className="relative">
             <Avatar className={cn(
               "h-14 w-14 ring-2",
-              myStatuses.length > 0 ? "ring-primary" : "ring-muted"
+              myStatuses.length > 0 ? "ring-primary ring-offset-2" : "ring-muted"
             )}>
               <AvatarImage src={user?.photoURL || undefined} />
-              <AvatarFallback className="bg-primary/10 text-primary text-lg">
+              <AvatarFallback className="bg-primary/10 text-primary text-lg font-semibold">
                 {user?.displayName?.charAt(0).toUpperCase()}
               </AvatarFallback>
             </Avatar>
-            <button
+            <div
               onClick={(e) => { e.stopPropagation(); setShowCreateDialog(true); }}
-              className="absolute bottom-0 right-0 w-6 h-6 bg-primary rounded-full flex items-center justify-center border-2 border-card"
+              className="absolute -bottom-1 -right-1 w-7 h-7 bg-primary hover:bg-primary/90 rounded-full flex items-center justify-center border-[3px] border-card shadow-lg cursor-pointer transition-colors"
+              title="Add status"
             >
               <Plus className="w-4 h-4 text-primary-foreground" />
-            </button>
+            </div>
           </div>
           <div className="flex-1">
-            <p className="font-medium text-foreground">My Status</p>
+            <p className="font-semibold text-foreground">My Status</p>
             <p className="text-sm text-muted-foreground">
               {myStatuses.length > 0 
-                ? `${myStatuses.length} update${myStatuses.length > 1 ? 's' : ''}`
+                ? `${formatDistanceToNow(new Date(myStatuses[0].timestamp.seconds * 1000), { addSuffix: true })}`
                 : 'Tap to add status update'
               }
             </p>
           </div>
+          {myStatuses.length > 0 && (
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Eye className="w-3.5 h-3.5" />
+              <span>{myStatuses.reduce((acc, s) => acc + (s.viewedBy?.length || 0), 0)}</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -234,9 +242,9 @@ export const StatusList = () => {
       <div className="flex-1 overflow-y-auto pb-20">
         {statuses.length > 0 && (
           <>
-            <p className="px-4 py-2 text-sm font-medium text-muted-foreground">
+            <h3 className="px-6 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
               Recent updates
-            </p>
+            </h3>
             {statuses.map((group) => (
               <div
                 key={group.userId}
@@ -263,20 +271,32 @@ export const StatusList = () => {
           </>
         )}
 
-        {statuses.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
-            <Eye className="w-12 h-12 mb-3 opacity-30" />
-            <p>No status updates</p>
-            <p className="text-sm">Status updates from contacts will appear here</p>
+        {statuses.length === 0 && myStatuses.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-64 text-center px-6">
+            <div className="w-32 h-32 bg-muted/20 rounded-full flex items-center justify-center mb-4">
+              <Eye className="w-16 h-16 text-muted-foreground/30" />
+            </div>
+            <h3 className="text-lg font-semibold mb-2 text-foreground">No status updates</h3>
+            <p className="text-sm text-muted-foreground mb-6 max-w-sm">
+              Share photos, videos and text updates that disappear after 24 hours
+            </p>
+            <Button
+              onClick={() => setShowCreateDialog(true)}
+              className="gap-2"
+              size="lg"
+            >
+              <Plus className="w-5 h-5" />
+              Create Your First Status
+            </Button>
           </div>
         )}
       </div>
 
       {/* Floating Action Button */}
-      <div className="absolute bottom-6 right-6">
+      <div className="absolute bottom-6 right-6 z-10">
         <button 
           onClick={() => setShowCreateDialog(true)}
-          className="w-14 h-14 bg-primary hover:bg-primary/90 text-primary-foreground rounded-full shadow-lg shadow-primary/25 flex items-center justify-center transition-all hover:scale-105"
+          className="w-14 h-14 bg-primary hover:bg-primary/90 text-primary-foreground rounded-full shadow-lg shadow-primary/25 flex items-center justify-center transition-all hover:scale-105 active:scale-95"
           title="Add Status"
         >
           <Plus className="w-6 h-6" />
