@@ -17,7 +17,9 @@ import {
   FileText,
   MapPin,
   User as UserIcon,
-  ArrowLeft
+  ArrowLeft,
+  Loader2,
+  MessageCircle
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -33,88 +35,18 @@ import {
 import { MessageBubble } from './MessageBubble';
 import { Message, User } from '@/types/chat';
 import { formatDistanceToNow } from 'date-fns';
-
-// Demo messages
-const demoMessages: Message[] = [
-  {
-    id: '1',
-    chatId: '1',
-    senderId: '2',
-    content: 'Hey! How are you doing today? 😊',
-    type: 'text',
-    timestamp: new Date(Date.now() - 1000 * 60 * 60),
-    status: 'seen',
-    forwarded: false,
-    deletedForEveryone: false,
-    deletedFor: [],
-    reactions: {},
-  },
-  {
-    id: '2',
-    chatId: '1',
-    senderId: '1',
-    content: "I'm doing great, thanks for asking! Just finished a big project at work.",
-    type: 'text',
-    timestamp: new Date(Date.now() - 1000 * 60 * 55),
-    status: 'seen',
-    forwarded: false,
-    deletedForEveryone: false,
-    deletedFor: [],
-    reactions: {},
-  },
-  {
-    id: '3',
-    chatId: '1',
-    senderId: '2',
-    content: "That's awesome! 🎉 We should celebrate this weekend!",
-    type: 'text',
-    timestamp: new Date(Date.now() - 1000 * 60 * 50),
-    status: 'seen',
-    forwarded: false,
-    deletedForEveryone: false,
-    deletedFor: [],
-    reactions: { '1': '❤️' },
-  },
-  {
-    id: '4',
-    chatId: '1',
-    senderId: '1',
-    content: 'Sounds like a plan! What do you have in mind?',
-    type: 'text',
-    timestamp: new Date(Date.now() - 1000 * 60 * 45),
-    status: 'seen',
-    forwarded: false,
-    deletedForEveryone: false,
-    deletedFor: [],
-    reactions: {},
-  },
-  {
-    id: '5',
-    chatId: '1',
-    senderId: '2',
-    content: 'Maybe we could try that new restaurant downtown? I heard their food is amazing!',
-    type: 'text',
-    timestamp: new Date(Date.now() - 1000 * 60 * 10),
-    status: 'seen',
-    forwarded: false,
-    deletedForEveryone: false,
-    deletedFor: [],
-    reactions: {},
-  },
-  {
-    id: '6',
-    chatId: '1',
-    senderId: '1',
-    content: "Perfect! Let's do Saturday evening then 🍽️",
-    type: 'text',
-    timestamp: new Date(Date.now() - 1000 * 60 * 5),
-    status: 'delivered',
-    forwarded: false,
-    deletedForEveryone: false,
-    deletedFor: [],
-    reactions: {},
-  },
-];
+import { db } from '@/lib/firebase';
+import { 
+  collection, 
+  query, 
+  orderBy, 
+  onSnapshot, 
+  addDoc, 
+  serverTimestamp,
+  doc,
+  getDoc,
+  updateDoc
+} from 'firebase/firestore';
 
 interface ChatWindowProps {
   otherUser?: User;
@@ -122,26 +54,134 @@ interface ChatWindowProps {
 }
 
 export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
-  const { activeChat, setActiveChat } = useChatStore();
+  const { activeChat, setActiveChat, messages, setMessages } = useChatStore();
   const { user: currentUser } = useAuthStore();
   const [message, setMessage] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [chatPartner, setChatPartner] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSending, setIsSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  // Fetch chat partner info
+  useEffect(() => {
+    if (!activeChat || !currentUser?.uid) {
+      setChatPartner(null);
+      return;
+    }
+
+    const otherUserId = activeChat.participants.find(p => p !== currentUser.uid);
+    if (!otherUserId) return;
+
+    const fetchPartner = async () => {
+      try {
+        const userDoc = await getDoc(doc(db, 'users', otherUserId));
+        if (userDoc.exists()) {
+          const userData = userDoc.data() as User;
+          if (userData.lastSeen) {
+            userData.lastSeen = (userData.lastSeen as any).toDate?.() || userData.lastSeen;
+          }
+          if (userData.createdAt) {
+            userData.createdAt = (userData.createdAt as any).toDate?.() || userData.createdAt;
+          }
+          setChatPartner(userData);
+        }
+      } catch (error) {
+        console.error('Error fetching chat partner:', error);
+      }
+    };
+
+    fetchPartner();
+  }, [activeChat, currentUser?.uid]);
+
+  // Fetch messages from Firebase in real-time
+  useEffect(() => {
+    if (!activeChat?.id) {
+      setMessages([]);
+      return;
+    }
+
+    setIsLoading(true);
+    const messagesRef = collection(db, 'chats', activeChat.id, 'messages');
+    const q = query(messagesRef, orderBy('timestamp', 'asc'));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const messagesData: Message[] = [];
+      snapshot.forEach((docSnap) => {
+        const msgData = { id: docSnap.id, ...docSnap.data() } as Message;
+        // Convert Firestore timestamp to Date
+        if (msgData.timestamp) {
+          msgData.timestamp = (msgData.timestamp as any).toDate?.() || msgData.timestamp;
+        }
+        messagesData.push(msgData);
+      });
+      setMessages(messagesData);
+      setIsLoading(false);
+      setTimeout(scrollToBottom, 100);
+    }, (error) => {
+      console.error('Error fetching messages:', error);
+      setIsLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [activeChat?.id, setMessages]);
+
   useEffect(() => {
     scrollToBottom();
-  }, []);
+  }, [messages]);
 
-  const handleSendMessage = () => {
-    if (!message.trim()) return;
-    // Here you would add Firebase message sending logic
-    console.log('Sending message:', message);
+  const handleSendMessage = async () => {
+    if (!message.trim() || !activeChat?.id || !currentUser?.uid) return;
+
+    setIsSending(true);
+    const messageContent = message.trim();
     setMessage('');
+
+    try {
+      // Add message to Firestore
+      const messagesRef = collection(db, 'chats', activeChat.id, 'messages');
+      await addDoc(messagesRef, {
+        chatId: activeChat.id,
+        senderId: currentUser.uid,
+        content: messageContent,
+        type: 'text',
+        timestamp: serverTimestamp(),
+        status: 'sent',
+        forwarded: false,
+        deletedForEveryone: false,
+        deletedFor: [],
+        reactions: {},
+      });
+
+      // Update chat's last message
+      const chatRef = doc(db, 'chats', activeChat.id);
+      await updateDoc(chatRef, {
+        lastMessage: {
+          id: '',
+          chatId: activeChat.id,
+          senderId: currentUser.uid,
+          content: messageContent,
+          type: 'text',
+          timestamp: new Date(),
+          status: 'sent',
+          forwarded: false,
+          deletedForEveryone: false,
+          deletedFor: [],
+          reactions: {},
+        },
+        lastMessageAt: serverTimestamp(),
+      });
+    } catch (error) {
+      console.error('Error sending message:', error);
+      setMessage(messageContent); // Restore message on error
+    } finally {
+      setIsSending(false);
+    }
   };
 
   const handleEmojiSelect = (emoji: any) => {
@@ -156,18 +196,8 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
     }
   };
 
-  // Demo user for showcase
-  const displayUser = otherUser || {
-    uid: '2',
-    email: 'sarah@example.com',
-    displayName: 'Sarah Wilson',
-    photoURL: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
-    about: 'Living my best life ✨',
-    lastSeen: new Date(Date.now() - 1000 * 60 * 2),
-    online: true,
-    blockedUsers: [],
-    createdAt: new Date(),
-  };
+  // Use the chat partner or provided otherUser
+  const displayUser = otherUser || chatPartner;
 
   if (!activeChat) {
     return (
@@ -202,18 +232,20 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
           </button>
         )}
         <Avatar className="h-10 w-10 cursor-pointer">
-          <AvatarImage src={displayUser.photoURL || undefined} />
+          <AvatarImage src={displayUser?.photoURL || undefined} />
           <AvatarFallback className="bg-primary/10 text-primary font-medium">
-            {displayUser.displayName.charAt(0).toUpperCase()}
+            {displayUser?.displayName?.charAt(0).toUpperCase() || '?'}
           </AvatarFallback>
         </Avatar>
         <div className="flex-1 min-w-0 cursor-pointer">
-          <h3 className="font-semibold text-foreground truncate">{displayUser.displayName}</h3>
+          <h3 className="font-semibold text-foreground truncate">{displayUser?.displayName || 'Loading...'}</h3>
           <p className="text-xs text-muted-foreground">
-            {displayUser.online ? (
+            {displayUser?.online ? (
               <span className="text-online">online</span>
-            ) : (
+            ) : displayUser?.lastSeen ? (
               `last seen ${formatDistanceToNow(displayUser.lastSeen, { addSuffix: true })}`
+            ) : (
+              'offline'
             )}
           </p>
         </div>
@@ -246,15 +278,27 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-thin">
-        {demoMessages.map((msg, index) => (
-          <MessageBubble
-            key={msg.id}
-            message={msg}
-            isOwn={msg.senderId === '1'}
-            showAvatar={index === 0 || demoMessages[index - 1].senderId !== msg.senderId}
-            user={msg.senderId === '1' ? undefined : displayUser}
-          />
-        ))}
+        {isLoading ? (
+          <div className="flex items-center justify-center h-full">
+            <Loader2 className="w-6 h-6 text-primary animate-spin" />
+          </div>
+        ) : messages.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+            <MessageCircle className="w-12 h-12 mb-3 opacity-30" />
+            <p className="text-sm">No messages yet</p>
+            <p className="text-xs">Send a message to start the conversation</p>
+          </div>
+        ) : (
+          messages.map((msg, index) => (
+            <MessageBubble
+              key={msg.id}
+              message={msg}
+              isOwn={msg.senderId === currentUser?.uid}
+              showAvatar={index === 0 || messages[index - 1].senderId !== msg.senderId}
+              user={msg.senderId === currentUser?.uid ? undefined : displayUser || undefined}
+            />
+          ))
+        )}
         <div ref={messagesEndRef} />
       </div>
 
@@ -304,19 +348,23 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               onKeyPress={handleKeyPress}
+              disabled={isSending}
               className="h-11 bg-muted/50 border-0 focus-visible:ring-1 focus-visible:ring-primary/50 rounded-xl pr-12"
             />
           </div>
 
           <button
-            onClick={message.trim() ? handleSendMessage : undefined}
+            onClick={message.trim() && !isSending ? handleSendMessage : undefined}
+            disabled={isSending}
             className={`p-2.5 rounded-full transition-all flex-shrink-0 ${
-              message.trim()
+              message.trim() && !isSending
                 ? 'bg-primary hover:bg-primary/90 text-primary-foreground'
                 : 'hover:bg-muted text-muted-foreground'
             }`}
           >
-            {message.trim() ? (
+            {isSending ? (
+              <Loader2 className="w-6 h-6 animate-spin" />
+            ) : message.trim() ? (
               <Send className="w-6 h-6" />
             ) : (
               <Mic className="w-6 h-6" />

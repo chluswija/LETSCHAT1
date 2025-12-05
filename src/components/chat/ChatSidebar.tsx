@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/store/authStore';
 import { useChatStore } from '@/store/chatStore';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -12,7 +12,8 @@ import {
   Archive,
   Settings,
   LogOut,
-  Plus
+  Plus,
+  Loader2
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -22,136 +23,91 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { signOut } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase';
+import { collection, query, where, onSnapshot, doc, getDoc, orderBy } from 'firebase/firestore';
 import { ChatListItem } from './ChatListItem';
 import { Chat, User } from '@/types/chat';
 import { formatDistanceToNow } from 'date-fns';
 
-// Demo data for UI showcase
-const demoChats: (Chat & { otherUser: User })[] = [
-  {
-    id: '1',
-    type: 'private',
-    participants: ['1', '2'],
-    lastMessage: {
-      id: 'm1',
-      chatId: '1',
-      senderId: '2',
-      content: 'Hey! How are you doing? 😊',
-      type: 'text',
-      timestamp: new Date(Date.now() - 1000 * 60 * 5),
-      status: 'seen',
-      forwarded: false,
-      deletedForEveryone: false,
-      deletedFor: [],
-      reactions: {},
-    },
-    lastMessageAt: new Date(Date.now() - 1000 * 60 * 5),
-    createdAt: new Date(),
-    unreadCount: { '1': 2 },
-    pinnedBy: ['1'],
-    archivedBy: [],
-    mutedBy: [],
-    typing: {},
-    otherUser: {
-      uid: '2',
-      email: 'sarah@example.com',
-      displayName: 'Sarah Wilson',
-      photoURL: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
-      about: 'Living my best life ✨',
-      lastSeen: new Date(Date.now() - 1000 * 60 * 2),
-      online: true,
-      blockedUsers: [],
-      createdAt: new Date(),
-    },
-  },
-  {
-    id: '2',
-    type: 'private',
-    participants: ['1', '3'],
-    lastMessage: {
-      id: 'm2',
-      chatId: '2',
-      senderId: '1',
-      content: 'Let me know when you arrive',
-      type: 'text',
-      timestamp: new Date(Date.now() - 1000 * 60 * 30),
-      status: 'delivered',
-      forwarded: false,
-      deletedForEveryone: false,
-      deletedFor: [],
-      reactions: {},
-    },
-    lastMessageAt: new Date(Date.now() - 1000 * 60 * 30),
-    createdAt: new Date(),
-    unreadCount: {},
-    pinnedBy: [],
-    archivedBy: [],
-    mutedBy: [],
-    typing: {},
-    otherUser: {
-      uid: '3',
-      email: 'mike@example.com',
-      displayName: 'Mike Chen',
-      photoURL: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
-      about: 'Coffee enthusiast ☕',
-      lastSeen: new Date(Date.now() - 1000 * 60 * 15),
-      online: false,
-      blockedUsers: [],
-      createdAt: new Date(),
-    },
-  },
-  {
-    id: '3',
-    type: 'private',
-    participants: ['1', '4'],
-    lastMessage: {
-      id: 'm3',
-      chatId: '3',
-      senderId: '4',
-      content: 'Thanks for your help! 🙏',
-      type: 'text',
-      timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2),
-      status: 'seen',
-      forwarded: false,
-      deletedForEveryone: false,
-      deletedFor: [],
-      reactions: {},
-    },
-    lastMessageAt: new Date(Date.now() - 1000 * 60 * 60 * 2),
-    createdAt: new Date(),
-    unreadCount: {},
-    pinnedBy: [],
-    archivedBy: [],
-    mutedBy: [],
-    typing: { '4': true },
-    otherUser: {
-      uid: '4',
-      email: 'emma@example.com',
-      displayName: 'Emma Davis',
-      photoURL: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150',
-      about: 'Designer & Creator',
-      lastSeen: new Date(),
-      online: true,
-      blockedUsers: [],
-      createdAt: new Date(),
-    },
-  },
-];
-
 export const ChatSidebar = () => {
   const { user, logout } = useAuthStore();
-  const { activeChat, setActiveChat, searchQuery, setSearchQuery } = useChatStore();
+  const { chats, setChats, activeChat, setActiveChat, searchQuery, setSearchQuery } = useChatStore();
   const [activeTab, setActiveTab] = useState<'chats' | 'status' | 'groups'>('chats');
+  const [chatUsers, setChatUsers] = useState<{ [chatId: string]: User }>({});
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Fetch chats from Firebase in real-time
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    const chatsRef = collection(db, 'chats');
+    const q = query(
+      chatsRef,
+      where('participants', 'array-contains', user.uid),
+      orderBy('lastMessageAt', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
+      const chatsData: Chat[] = [];
+      const userPromises: Promise<void>[] = [];
+
+      snapshot.forEach((docSnap) => {
+        const chatData = { id: docSnap.id, ...docSnap.data() } as Chat;
+        // Convert Firestore timestamps to Date
+        if (chatData.lastMessageAt) {
+          chatData.lastMessageAt = (chatData.lastMessageAt as any).toDate?.() || chatData.lastMessageAt;
+        }
+        if (chatData.createdAt) {
+          chatData.createdAt = (chatData.createdAt as any).toDate?.() || chatData.createdAt;
+        }
+        if (chatData.lastMessage?.timestamp) {
+          chatData.lastMessage.timestamp = (chatData.lastMessage.timestamp as any).toDate?.() || chatData.lastMessage.timestamp;
+        }
+        chatsData.push(chatData);
+
+        // Fetch the other user's data for private chats
+        if (chatData.type === 'private') {
+          const otherUserId = chatData.participants.find(p => p !== user.uid);
+          if (otherUserId && !chatUsers[chatData.id]) {
+            const promise = getDoc(doc(db, 'users', otherUserId)).then((userDoc) => {
+              if (userDoc.exists()) {
+                const userData = userDoc.data() as User;
+                // Convert timestamps
+                if (userData.lastSeen) {
+                  userData.lastSeen = (userData.lastSeen as any).toDate?.() || userData.lastSeen;
+                }
+                if (userData.createdAt) {
+                  userData.createdAt = (userData.createdAt as any).toDate?.() || userData.createdAt;
+                }
+                setChatUsers(prev => ({ ...prev, [chatData.id]: userData }));
+              }
+            });
+            userPromises.push(promise);
+          }
+        }
+      });
+
+      await Promise.all(userPromises);
+      setChats(chatsData);
+      setIsLoading(false);
+    }, (error) => {
+      console.error('Error fetching chats:', error);
+      setIsLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [user?.uid, setChats]);
 
   const handleLogout = async () => {
     await signOut(auth);
     logout();
   };
 
-  const filteredChats = demoChats.filter((chat) =>
-    chat.otherUser.displayName.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredChats = chats.filter((chat) => {
+    const otherUser = chatUsers[chat.id];
+    if (!otherUser) return false;
+    return otherUser.displayName.toLowerCase().includes(searchQuery.toLowerCase());
+  });
 
   return (
     <div className="w-full h-full flex flex-col bg-card border-r border-border">
@@ -238,16 +194,32 @@ export const ChatSidebar = () => {
 
       {/* Chat List */}
       <div className="flex-1 overflow-y-auto scrollbar-thin">
-        {filteredChats.map((chat, index) => (
-          <ChatListItem
-            key={chat.id}
-            chat={chat}
-            user={chat.otherUser}
-            isActive={activeChat?.id === chat.id}
-            onClick={() => setActiveChat(chat)}
-            style={{ animationDelay: `${index * 0.05}s` }}
-          />
-        ))}
+        {isLoading ? (
+          <div className="flex items-center justify-center h-32">
+            <Loader2 className="w-6 h-6 text-primary animate-spin" />
+          </div>
+        ) : filteredChats.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-32 text-muted-foreground">
+            <MessageCircle className="w-8 h-8 mb-2 opacity-50" />
+            <p className="text-sm">No chats yet</p>
+            <p className="text-xs">Start a new conversation</p>
+          </div>
+        ) : (
+          filteredChats.map((chat, index) => {
+            const otherUser = chatUsers[chat.id];
+            if (!otherUser) return null;
+            return (
+              <ChatListItem
+                key={chat.id}
+                chat={chat}
+                user={otherUser}
+                isActive={activeChat?.id === chat.id}
+                onClick={() => setActiveChat(chat)}
+                style={{ animationDelay: `${index * 0.05}s` }}
+              />
+            );
+          })
+        )}
       </div>
 
       {/* New Chat FAB */}
