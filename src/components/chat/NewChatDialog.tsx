@@ -67,23 +67,44 @@ export const NewChatDialog = ({ open, onOpenChange, onNewGroup }: NewChatDialogP
       
       for (const docSnap of snapshot.docs) {
         const data = docSnap.data();
-        // Fetch latest user data
-        const userDoc = await getDoc(doc(db, 'users', data.userId));
-        if (userDoc.exists()) {
-          const userData = userDoc.data();
+        
+        // Check if this is a real user on the platform
+        const isRealUser = data.userId && !data.userId.startsWith('phone_');
+        
+        if (isRealUser) {
+          // Fetch latest user data for users on platform
+          try {
+            const userDoc = await getDoc(doc(db, 'users', data.userId));
+            if (userDoc.exists()) {
+              const userData = userDoc.data();
+              contactsList.push({
+                oderId: data.userId,
+                oderId2: data.userId,
+                oderId3: data.userId,
+                userId: data.userId,
+                name: data.name, // Use saved contact name
+                phone: userData.phone || data.phone,
+                photoURL: userData.photoURL || data.photoURL,
+              });
+            }
+          } catch (error) {
+            console.error('Error fetching user data:', error);
+          }
+        } else {
+          // For contacts not on platform yet, just use saved data
           contactsList.push({
             oderId: data.userId,
             oderId2: data.userId,
             oderId3: data.userId,
             userId: data.userId,
-            name: data.name, // Use saved name
-            phone: userData.phone || data.phone,
-            photoURL: userData.photoURL,
+            name: data.name, // Use saved contact name
+            phone: data.phone,
+            photoURL: data.photoURL || null,
           });
         }
       }
       
-      // Sort alphabetically
+      // Sort alphabetically by name
       contactsList.sort((a, b) => a.name.localeCompare(b.name));
       setContacts(contactsList);
       setIsLoading(false);

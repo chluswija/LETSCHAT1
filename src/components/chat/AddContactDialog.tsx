@@ -130,15 +130,18 @@ export const AddContactDialog = ({ open, onOpenChange, onContactAdded }: AddCont
         return;
       }
 
-      // Save contact to subcollection
-      await addDoc(contactsRef, {
+      // Save contact to subcollection with the individual's name
+      const contactData = {
         userId: foundUser?.uid || `phone_${normalizedPhone}`,
-        name: contactName.trim(),
+        name: contactName.trim(), // This is the custom name the user enters
         phone: normalizedPhone,
         photoURL: foundUser?.photoURL || null,
         savedAt: serverTimestamp(),
         onPlatform: !!foundUser,
-      });
+      };
+      
+      console.log('Saving contact with name:', contactName.trim());
+      await addDoc(contactsRef, contactData);
 
       // If user is on platform, add to contacts array
       if (foundUser?.uid) {
@@ -238,14 +241,17 @@ export const AddContactDialog = ({ open, onOpenChange, onContactAdded }: AddCont
 
               {/* Contact Name Input */}
               <div className="space-y-2">
-                <Label htmlFor="name">Save as</Label>
+                <Label htmlFor="name">Save as (e.g., John Doe, Mom, Office)</Label>
                 <Input
                   id="name"
-                  placeholder="Contact name"
+                  placeholder="Enter name for this contact"
                   value={contactName}
                   onChange={(e) => setContactName(e.target.value)}
                   autoFocus
                 />
+                <p className="text-xs text-muted-foreground">
+                  This is how the contact will appear in your chat list
+                </p>
               </div>
             </div>
           )}
