@@ -26,7 +26,6 @@ interface AddContactDialogProps {
 export const AddContactDialog = ({ open, onOpenChange, onContactAdded }: AddContactDialogProps) => {
   const { user: currentUser, setUser } = useAuthStore();
   const [phoneNumber, setPhoneNumber] = useState('');
-  const [contactName, setContactName] = useState('');
   const [foundUser, setFoundUser] = useState<User | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -118,10 +117,6 @@ export const AddContactDialog = ({ open, onOpenChange, onContactAdded }: AddCont
         if (found) {
           setFoundUser(found);
           setSearchStatus('found');
-          // Pre-fill contact name if user has a display name
-          if (!contactName && found.displayName) {
-            setContactName(found.displayName);
-          }
         } else {
           setFoundUser(null);
           setSearchStatus('not-found');
@@ -135,18 +130,21 @@ export const AddContactDialog = ({ open, onOpenChange, onContactAdded }: AddCont
 
     const debounceTimer = setTimeout(searchUser, 500);
     return () => clearTimeout(debounceTimer);
-  }, [phoneNumber, currentUser?.uid, contactName]);
+  }, [phoneNumber, currentUser?.uid]);
 
   // Save contact (even if user not found on platform yet)
   const saveContact = async () => {
-    if (!currentUser?.uid || !contactName.trim() || !phoneNumber.trim()) {
+    if (!currentUser?.uid || !phoneNumber.trim()) {
       toast({ 
         title: 'Missing information', 
-        description: 'Please enter both name and phone number',
+        description: 'Please enter a phone number',
         variant: 'destructive' 
       });
       return;
     }
+
+    // Auto-generate contact name
+    const contactName = foundUser?.displayName || phoneNumber.replace(/[\s\-()]/g, '');
 
     setIsSaving(true);
     
@@ -292,7 +290,6 @@ export const AddContactDialog = ({ open, onOpenChange, onContactAdded }: AddCont
 
   const resetForm = () => {
     setPhoneNumber('');
-    setContactName('');
     setFoundUser(null);
     setSearchStatus('idle');
   };
@@ -315,7 +312,7 @@ export const AddContactDialog = ({ open, onOpenChange, onContactAdded }: AddCont
             Add New Contact
           </DialogTitle>
           <p className="text-sm text-muted-foreground mt-2">
-            Enter a phone number to add to your contacts
+            Enter a phone number to search and add to your contacts
           </p>
         </DialogHeader>
 
@@ -349,82 +346,47 @@ export const AddContactDialog = ({ open, onOpenChange, onContactAdded }: AddCont
           {/* Search Result */}
           {searchStatus === 'found' && foundUser && (
             <div className="p-4 bg-green-500/5 rounded-lg border-2 border-green-500/20 animate-fade-up">
-              <div className="flex items-center gap-3 mb-4">
-                <Avatar className="h-14 w-14 ring-2 ring-green-500/20">
+              <div className="flex items-center gap-3">
+                <Avatar className="h-16 w-16 ring-2 ring-green-500/20">
                   <AvatarImage src={foundUser.photoURL || undefined} />
-                  <AvatarFallback className="bg-green-500/10 text-green-700 font-semibold">
+                  <AvatarFallback className="bg-green-500/10 text-green-700 font-semibold text-xl">
                     {foundUser.displayName?.charAt(0) || foundUser.phone?.charAt(1) || '?'}
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <p className="font-semibold text-foreground">
+                    <p className="font-semibold text-foreground text-lg">
                       {foundUser.displayName || 'LetsChat User'}
                     </p>
-                    <Check className="w-4 h-4 text-green-500" />
+                    <Check className="w-5 h-5 text-green-500" />
                   </div>
                   <p className="text-sm text-muted-foreground">{foundUser.phone}</p>
                   {foundUser.about && (
                     <p className="text-xs text-muted-foreground mt-1 italic">"{foundUser.about}"</p>
                   )}
+                  <div className="mt-2 px-2 py-1 bg-green-500/10 rounded-md inline-flex items-center gap-1">
+                    <Check className="w-3 h-3 text-green-600" />
+                    <span className="text-xs text-green-700 font-medium">On LetsChat</span>
+                  </div>
                 </div>
-              </div>
-
-              {/* Contact Name Input */}
-              <div className="space-y-2">
-                <Label htmlFor="name" className="text-sm font-medium">
-                  Save as * <span className="text-xs text-muted-foreground font-normal">(How they'll appear in your chats)</span>
-                </Label>
-                <Input
-                  id="name"
-                  placeholder="e.g., John, Mom, Office Manager"
-                  value={contactName}
-                  onChange={(e) => setContactName(e.target.value)}
-                  className="h-11"
-                  disabled={isSaving}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && contactName.trim()) {
-                      saveContact();
-                    }
-                  }}
-                />
               </div>
             </div>
           )}
 
           {/* Not Found - But still allow saving */}
           {searchStatus === 'not-found' && (
-            <div className="space-y-3 animate-fade-up">
-              <div className="p-4 bg-blue-500/5 rounded-lg border-2 border-blue-500/20">
-                <div className="flex items-start gap-2">
-                  <AlertCircle className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-semibold text-foreground">Not on LetsChat</p>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      This number isn't registered yet. You can still save it and message them when they join.
-                    </p>
-                  </div>
+            <div className="p-4 bg-blue-500/5 rounded-lg border-2 border-blue-500/20 animate-fade-up">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="font-semibold text-foreground">Not on LetsChat</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    This number isn't registered yet. You can still save it and message them when they join.
+                  </p>
+                  <p className="text-xs text-blue-600 mt-2 font-medium">
+                    Will be saved as: {phoneNumber.replace(/[\s\-()]/g, '')}
+                  </p>
                 </div>
-              </div>
-
-              {/* Contact Name Input for non-registered users */}
-              <div className="space-y-2">
-                <Label htmlFor="name-notfound" className="text-sm font-medium">
-                  Contact Name *
-                </Label>
-                <Input
-                  id="name-notfound"
-                  placeholder="e.g., John Doe, Work Client"
-                  value={contactName}
-                  onChange={(e) => setContactName(e.target.value)}
-                  className="h-11"
-                  disabled={isSaving}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && contactName.trim()) {
-                      saveContact();
-                    }
-                  }}
-                />
               </div>
             </div>
           )}
@@ -441,7 +403,7 @@ export const AddContactDialog = ({ open, onOpenChange, onContactAdded }: AddCont
           </Button>
           <Button
             onClick={saveContact}
-            disabled={!contactName.trim() || !phoneNumber.trim() || phoneNumber.length < 10 || isSaving}
+            disabled={!phoneNumber.trim() || phoneNumber.length < 10 || isSaving || searchStatus === 'idle'}
             className="flex-1 bg-primary hover:bg-primary/90"
           >
             {isSaving ? (
