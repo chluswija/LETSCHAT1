@@ -1,73 +1,65 @@
-# Welcome to your Lovable project
+# LETSCHAT - Real-time Messaging Application
 
-## Project info
+**Created by CH Luswija - Dream Team Services**
 
-**URL**: https://lovable.dev/projects/0067f398-fa29-4f1a-ac5e-9081dca0999e
+## About
 
-## How can I edit this code?
+LETSCHAT is a premium real-time messaging application built with modern web technologies. Connect with friends instantly with a beautiful, responsive interface.
 
-There are several ways of editing your application.
+## Technologies Used
 
-**Use Lovable**
+- **Vite** - Fast build tool and development server
+- **TypeScript** - Type-safe JavaScript
+- **React** - UI library
+- **shadcn/ui** - Beautiful UI components
+- **Tailwind CSS** - Utility-first CSS framework
+- **Firebase** - Backend services (Auth, Firestore)
+- **Zustand** - State management
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/0067f398-fa29-4f1a-ac5e-9081dca0999e) and start prompting.
+## Getting Started
 
-Changes made via Lovable will be committed automatically to this repo.
+### Prerequisites
 
-**Use your preferred IDE**
+- Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
+### Installation
 
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+# Clone the repository
+git clone https://github.com/chluswija/LETSCHAT1.git
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+# Navigate to the project directory
+cd connect-chat
 
-# Step 3: Install the necessary dependencies.
-npm i
+# Install dependencies
+npm install
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+# Start the development server
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+## Features
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+- 🔐 User authentication (Email/Password, Google)
+- 💬 Real-time messaging
+- 👤 User profiles with avatars
+- 🔍 Search conversations
+- 📱 Responsive design (mobile & desktop)
+- 🌙 Modern UI with dark theme support
 
-**Use GitHub Codespaces**
+## Deployment
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+This project can be deployed on:
+- Vercel
+- Netlify
+- Firebase Hosting
+- Any static hosting provider
 
-## What technologies are used for this project?
+## Author
 
-This project is built with:
+**CH Luswija**  
+Dream Team Services
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## License
 
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/0067f398-fa29-4f1a-ac5e-9081dca0999e) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+This project is proprietary software created by Dream Team Services.
