@@ -78,6 +78,15 @@ export const AddContactDialog = ({ open, onOpenChange, onContactAdded }: AddCont
           }
         });
 
+        // Check if user is trying to search their own number
+        const currentUserPhone = (currentUser?.phone || '').replace(/[\s\-()]/g, '');
+        if (normalizedPhone === currentUserPhone) {
+          setFoundUser(null);
+          setSearchStatus('idle');
+          setIsSearching(false);
+          return;
+        }
+
         if (found) {
           setFoundUser(found);
           setSearchStatus('found');
@@ -111,6 +120,18 @@ export const AddContactDialog = ({ open, onOpenChange, onContactAdded }: AddCont
     try {
       const contactsRef = collection(db, 'users', currentUser.uid, 'contacts');
       const normalizedPhone = phoneNumber.replace(/[\s\-()]/g, '');
+      
+      // Check if trying to save own number
+      const currentUserPhone = (currentUser.phone || '').replace(/[\s\-()]/g, '');
+      if (normalizedPhone === currentUserPhone || (foundUser && foundUser.uid === currentUser.uid)) {
+        toast({ 
+          title: 'Cannot add yourself', 
+          description: 'You cannot add your own phone number as a contact',
+          variant: 'destructive' 
+        });
+        setIsSaving(false);
+        return;
+      }
       
       console.log('Attempting to save contact:', {
         name: contactName.trim(),
