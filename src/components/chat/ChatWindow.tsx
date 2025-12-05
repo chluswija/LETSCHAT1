@@ -5,6 +5,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Input } from '@/components/ui/input';
 import data from '@emoji-mart/data';
 import Picker from '@emoji-mart/react';
+import { WebRTCCall, generateCallId, CallData } from '@/lib/webrtc';
+import { CallScreen } from './CallScreen';
 import { 
   Phone, 
   Video, 
@@ -85,6 +87,15 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState<string | null>(null);
   const [showCallDialog, setShowCallDialog] = useState<'voice' | 'video' | null>(null);
+  // Calling states
+  const [activeCall, setActiveCall] = useState<WebRTCCall | null>(null);
+  const [callType, setCallType] = useState<'voice' | 'video' | null>(null);
+  const [callStatus, setCallStatus] = useState<'ringing' | 'connecting' | 'connected' | 'ending'>('ringing');
+  const [isIncomingCall, setIsIncomingCall] = useState(false);
+  const [incomingCallData, setIncomingCallData] = useState<CallData | null>(null);
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [callDuration, setCallDuration] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -188,7 +199,9 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
     return () => unsubscribe();
   }, [activeChat?.id, setMessages, currentUser?.uid]);
 
-  // Listen for typing status from other user
+  // Listen for typing and recording status from other user
+  const [isOtherUserRecording, setIsOtherUserRecording] = useState(false);
+  
   useEffect(() => {
     if (!activeChat?.id) return;
 
@@ -197,10 +210,20 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         const otherUserId = activeChat.participants.find(p => p !== currentUser?.uid);
-        if (otherUserId && data.typing?.[otherUserId]) {
-          setIsTyping(true);
-        } else {
-          setIsTyping(false);
+        if (otherUserId) {
+          // Check typing status
+          if (data.typing?.[otherUserId]) {
+            setIsTyping(true);
+          } else {
+            setIsTyping(false);
+          }
+          
+          // Check recording status
+          if (data.recording?.[otherUserId]) {
+            setIsOtherUserRecording(true);
+          } else {
+            setIsOtherUserRecording(false);
+          }
         }
       }
     });
@@ -399,6 +422,18 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         await sendVoiceMessage(audioBlob);
         stream.getTracks().forEach(track => track.stop());
+        
+        // Update status: no longer recording
+        if (activeChat?.id && currentUser?.uid) {
+          try {
+            const chatRef = doc(db, 'chats', activeChat.id);
+            await updateDoc(chatRef, {
+              [`recording.${currentUser.uid}`]: false,
+            });
+          } catch (err) {
+            console.error('Error updating recording status:', err);
+          }
+        }
       };
 
       mediaRecorder.start();
@@ -408,6 +443,18 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
       recordingTimerRef.current = setInterval(() => {
         setRecordingTime(t => t + 1);
       }, 1000);
+      
+      // Update status: recording audio
+      if (activeChat?.id && currentUser?.uid) {
+        try {
+          const chatRef = doc(db, 'chats', activeChat.id);
+          await updateDoc(chatRef, {
+            [`recording.${currentUser.uid}`]: true,
+          });
+        } catch (err) {
+          console.error('Error updating recording status:', err);
+        }
+      }
     } catch (error) {
       console.error('Error starting recording:', error);
       toast({ title: 'Cannot access microphone', variant: 'destructive' });
@@ -479,13 +526,191 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // Listen for incoming calls
+  useEffect(() => {
+    if (!currentUser?.uid) return;
+
+    const callsRef = collection(db, 'calls');
+    const unsubscribe = onSnapshot(callsRef, (snapshot) => {
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === 'added') {
+          const callData = { ...change.doc.data(), id: change.doc.id } as CallData & { id: string };
+          
+          // Check if this is an incoming call for current user
+          if (
+            callData.receiverId === currentUser.uid &&
+            callData.status === 'ringing' &&
+            !activeCall
+          ) {
+            setIncomingCallData(callData);
+            setIsIncomingCall(true);
+            setCallType(callData.type);
+            setCallStatus('ringing');
+            
+            // Play ringtone
+            const audio = new Audio('/ringtone.mp3');
+            audio.loop = true;
+            audio.play().catch(() => {});
+          }
+        }
+      });
+    });
+
+    return () => unsubscribe();
+  }, [currentUser?.uid, activeCall]);
+
+  // Update call duration
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (callStatus === 'connected') {
+      interval = setInterval(() => {
+        setCallDuration((prev) => prev + 1);
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [callStatus]);
+
+  // Update online status
+  useEffect(() => {
+    if (!currentUser?.uid) return;
+
+    const updateStatus = async () => {
+      const userRef = doc(db, 'users', currentUser.uid);
+      await updateDoc(userRef, {
+        online: true,
+        lastSeen: serverTimestamp(),
+      });
+    };
+
+    updateStatus();
+    const interval = setInterval(updateStatus, 30000); // Update every 30 seconds
+
+    // Set offline on unmount
+    return () => {
+      clearInterval(interval);
+      const userRef = doc(db, 'users', currentUser.uid);
+      updateDoc(userRef, {
+        online: false,
+        lastSeen: serverTimestamp(),
+      });
+    };
+  }, [currentUser?.uid]);
+
   // Handle call initiation
-  const handleCall = (type: 'voice' | 'video') => {
-    if (!displayUser) {
+  const handleCall = async (type: 'voice' | 'video') => {
+    if (!displayUser || !currentUser) {
       toast({ title: 'Cannot make call', description: 'User information not available', variant: 'destructive' });
       return;
     }
-    setShowCallDialog(type);
+
+    try {
+      const callId = generateCallId(currentUser.uid, displayUser.uid);
+      const call = new WebRTCCall(callId, type, currentUser.uid, displayUser.uid);
+      
+      setActiveCall(call);
+      setCallType(type);
+      setCallStatus('ringing');
+      setIsIncomingCall(false);
+      setCallDuration(0);
+
+      // Start the call
+      await call.startCall(
+        currentUser.displayName || 'Unknown',
+        currentUser.photoURL,
+        (stream) => {
+          setRemoteStream(stream);
+          setCallStatus('connected');
+        }
+      );
+
+      // Get local stream
+      const stream = call.getLocalStream();
+      setLocalStream(stream);
+    } catch (error) {
+      console.error('Error starting call:', error);
+      toast({ 
+        title: 'Call failed', 
+        description: 'Could not start the call. Please check your permissions.', 
+        variant: 'destructive' 
+      });
+      handleEndCall();
+    }
+  };
+
+  // Handle answering incoming call
+  const handleAnswerCall = async () => {
+    if (!incomingCallData || !currentUser) return;
+
+    try {
+      const call = new WebRTCCall(
+        incomingCallData.id || '',
+        incomingCallData.type,
+        currentUser.uid,
+        incomingCallData.callerId
+      );
+      
+      setActiveCall(call);
+      setCallStatus('connecting');
+      setCallDuration(0);
+
+      // Answer the call
+      await call.answerCall((stream) => {
+        setRemoteStream(stream);
+        setCallStatus('connected');
+      });
+
+      // Get local stream
+      const stream = call.getLocalStream();
+      setLocalStream(stream);
+    } catch (error) {
+      console.error('Error answering call:', error);
+      toast({ 
+        title: 'Call failed', 
+        description: 'Could not answer the call.', 
+        variant: 'destructive' 
+      });
+      handleEndCall();
+    }
+  };
+
+  // Handle declining incoming call
+  const handleDeclineCall = async () => {
+    if (activeCall) {
+      await activeCall.rejectCall();
+    }
+    handleEndCall();
+  };
+
+  // Handle ending call
+  const handleEndCall = async () => {
+    if (activeCall) {
+      await activeCall.endCall();
+    }
+    
+    setCallStatus('ending');
+    setTimeout(() => {
+      setActiveCall(null);
+      setCallType(null);
+      setLocalStream(null);
+      setRemoteStream(null);
+      setCallDuration(0);
+      setIsIncomingCall(false);
+      setIncomingCallData(null);
+    }, 500);
+  };
+
+  // Handle toggle microphone
+  const handleToggleMic = (enabled: boolean) => {
+    if (activeCall) {
+      activeCall.toggleAudio(enabled);
+    }
+  };
+
+  // Handle toggle video
+  const handleToggleVideo = (enabled: boolean) => {
+    if (activeCall) {
+      activeCall.toggleVideo(enabled);
+    }
   };
 
   // Format phone number for display
@@ -530,6 +755,27 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
     );
   }
 
+  // Show call screen if there's an active call
+  if (activeCall && callType) {
+    return (
+      <CallScreen
+        callType={callType}
+        callStatus={callStatus}
+        isIncoming={isIncomingCall}
+        contactName={incomingCallData?.callerName || displayName}
+        contactPhoto={incomingCallData?.callerPhoto || displayUser?.photoURL}
+        localStream={localStream}
+        remoteStream={remoteStream}
+        duration={callDuration}
+        onAnswer={handleAnswerCall}
+        onDecline={handleDeclineCall}
+        onEndCall={handleEndCall}
+        onToggleMic={handleToggleMic}
+        onToggleVideo={handleToggleVideo}
+      />
+    );
+  }
+
   return (
     <div className="flex-1 flex flex-col h-full bg-chat-wallpaper chat-wallpaper">
       {/* Header */}
@@ -548,7 +794,12 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
         <div className="flex-1 min-w-0 cursor-pointer">
           <h3 className="font-semibold text-foreground truncate">{displayName}</h3>
           <p className="text-xs text-muted-foreground">
-            {isTyping ? (
+            {isOtherUserRecording ? (
+              <span className="text-primary flex items-center gap-1">
+                <Mic className="w-3 h-3 animate-pulse" />
+                recording audio...
+              </span>
+            ) : isTyping ? (
               <span className="text-primary flex items-center gap-1">
                 typing
                 <span className="flex gap-0.5">
@@ -786,88 +1037,7 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
         )}
       </div>
 
-      {/* Call Dialog */}
-      <Dialog open={showCallDialog !== null} onOpenChange={(open) => !open && setShowCallDialog(null)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              {showCallDialog === 'video' ? (
-                <>
-                  <Video className="w-5 h-5 text-primary" />
-                  Video Call
-                </>
-              ) : (
-                <>
-                  <Phone className="w-5 h-5 text-primary" />
-                  Voice Call
-                </>
-              )}
-            </DialogTitle>
-          </DialogHeader>
 
-          <div className="py-6">
-            <div className="flex flex-col items-center gap-4">
-              <Avatar className="h-24 w-24 ring-4 ring-primary/20">
-                <AvatarImage src={displayUser?.photoURL || undefined} />
-                <AvatarFallback className="bg-primary/10 text-primary text-3xl">
-                  {displayName?.charAt(0).toUpperCase() || '?'}
-                </AvatarFallback>
-              </Avatar>
-              <div className="text-center">
-                <h3 className="text-xl font-semibold text-foreground">{displayName}</h3>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {displayUser?.phone && formatPhoneDisplay(displayUser.phone)}
-                </p>
-              </div>
-
-              <div className="w-full p-4 bg-amber-500/10 rounded-lg border border-amber-500/20 mt-4">
-                <div className="flex items-start gap-2">
-                  <AlertCircle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-medium text-foreground">Calling feature coming soon</p>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      {showCallDialog === 'video' ? 'Video' : 'Voice'} calling will be available in a future update.
-                      For now, you can continue messaging.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              className="flex-1"
-              onClick={() => setShowCallDialog(null)}
-            >
-              Cancel
-            </Button>
-            <Button
-              className="flex-1"
-              onClick={() => {
-                toast({
-                  title: 'Feature coming soon',
-                  description: `${showCallDialog === 'video' ? 'Video' : 'Voice'} calling will be available soon!`,
-                });
-                setShowCallDialog(null);
-              }}
-            >
-              {showCallDialog === 'video' ? (
-                <>
-                  <Video className="w-4 h-4 mr-2" />
-                  Start Video Call
-                </>
-              ) : (
-                <>
-                  <Phone className="w-4 h-4 mr-2" />
-                  Start Voice Call
-                </>
-              )}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };
