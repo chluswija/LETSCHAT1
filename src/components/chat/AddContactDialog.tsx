@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, addDoc, doc, updateDoc, arrayUnion, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, doc, updateDoc, arrayUnion, serverTimestamp, deleteDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuthStore } from '@/store/authStore';
 import { User } from '@/types/chat';
@@ -31,6 +31,34 @@ export const AddContactDialog = ({ open, onOpenChange, onContactAdded }: AddCont
   const [isSearching, setIsSearching] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [searchStatus, setSearchStatus] = useState<'idle' | 'found' | 'not-found'>('idle');
+
+  // Cleanup function to remove self-contact if it exists
+  const removeSelfContact = async () => {
+    if (!currentUser) return;
+
+    try {
+      const contactsRef = collection(db, 'users', currentUser.uid, 'contacts');
+      const contactsSnapshot = await getDocs(contactsRef);
+      
+      contactsSnapshot.forEach(async (docSnap) => {
+        const data = docSnap.data();
+        // If this contact is the user themselves, delete it
+        if (data.userId === currentUser.uid) {
+          console.log('Found and removing self-contact:', docSnap.id);
+          await deleteDoc(doc(db, 'users', currentUser.uid, 'contacts', docSnap.id));
+        }
+      });
+    } catch (error) {
+      console.error('Error removing self-contact:', error);
+    }
+  };
+
+  // Cleanup self-contact when dialog opens
+  useEffect(() => {
+    if (open && currentUser) {
+      removeSelfContact();
+    }
+  }, [open]);
 
   // Format phone number as user types
   const handlePhoneChange = (value: string) => {
@@ -144,7 +172,7 @@ export const AddContactDialog = ({ open, onOpenChange, onContactAdded }: AddCont
         userId: foundUser?.uid || `phone_${normalizedPhone}`
       });
       
-      // Check if contact already exists (improved logic)
+      // Check if contact already exists (improved logic - exclude self)
       const existingContacts = await getDocs(contactsRef);
       let alreadyExists = false;
       let existingContactName = '';
@@ -153,12 +181,18 @@ export const AddContactDialog = ({ open, onOpenChange, onContactAdded }: AddCont
         const data = docSnap.data();
         const existingPhone = (data.phone || '').replace(/[\s\-()]/g, '');
         
-        // Check for exact userId match OR exact phone match
-        if (foundUser && data.userId === foundUser.uid) {
+        // Skip if this contact is the current user themselves
+        if (data.userId === currentUser.uid) {
+          console.log('Skipping self-contact in duplicate check');
+          return;
+        }
+        
+        // Check for exact userId match OR exact phone match (but not current user)
+        if (foundUser && data.userId === foundUser.uid && foundUser.uid !== currentUser.uid) {
           alreadyExists = true;
           existingContactName = data.name;
-        } else if (!foundUser && existingPhone === normalizedPhone) {
-          // For contacts not on platform, check phone number
+        } else if (!foundUser && existingPhone === normalizedPhone && existingPhone !== currentUserPhone) {
+          // For contacts not on platform, check phone number (but not own phone)
           alreadyExists = true;
           existingContactName = data.name;
         }
