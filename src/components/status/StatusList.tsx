@@ -185,7 +185,7 @@ export const StatusList = () => {
   }
 
   return (
-    <div className="h-full flex flex-col relative">
+    <div className="h-full w-full flex flex-col relative">
       {/* My Status */}
       <div className="p-4 border-b border-border">
         <div 
@@ -231,7 +231,7 @@ export const StatusList = () => {
       </div>
 
       {/* Recent Updates */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto pb-20">
         {statuses.length > 0 && (
           <>
             <p className="px-4 py-2 text-sm font-medium text-muted-foreground">
