@@ -17,9 +17,6 @@ import { Button } from '@/components/ui/button';
 import { AddContactDialog } from './AddContactDialog';
 
 interface SavedContact {
-  oderId?: string;
-  oderId2?: string;
-  oderId3?: string;
   userId: string;
   name: string;
   phone: string;
@@ -78,9 +75,6 @@ export const NewChatDialog = ({ open, onOpenChange, onNewGroup }: NewChatDialogP
             if (userDoc.exists()) {
               const userData = userDoc.data();
               contactsList.push({
-                oderId: data.userId,
-                oderId2: data.userId,
-                oderId3: data.userId,
                 userId: data.userId,
                 name: data.name, // Use saved contact name
                 phone: userData.phone || data.phone,
@@ -93,9 +87,6 @@ export const NewChatDialog = ({ open, onOpenChange, onNewGroup }: NewChatDialogP
         } else {
           // For contacts not on platform yet, just use saved data
           contactsList.push({
-            oderId: data.userId,
-            oderId2: data.userId,
-            oderId3: data.userId,
             userId: data.userId,
             name: data.name, // Use saved contact name
             phone: data.phone,
