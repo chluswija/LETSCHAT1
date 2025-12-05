@@ -13,7 +13,8 @@ import {
   Settings,
   LogOut,
   Plus,
-  Loader2
+  Loader2,
+  Phone
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -27,16 +28,19 @@ import { auth, db } from '@/lib/firebase';
 import { collection, query, where, onSnapshot, doc, getDoc, orderBy, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { ChatListItem } from './ChatListItem';
 import { NewChatDialog } from './NewChatDialog';
+import { CreateGroupDialog } from './GroupComponents';
+import { StatusList } from '../status/StatusList';
 import { Chat, User } from '@/types/chat';
 import { formatDistanceToNow } from 'date-fns';
 
 export const ChatSidebar = () => {
   const { user, logout } = useAuthStore();
   const { chats, setChats, activeChat, setActiveChat, searchQuery, setSearchQuery } = useChatStore();
-  const [activeTab, setActiveTab] = useState<'chats' | 'status' | 'groups'>('chats');
+  const [activeTab, setActiveTab] = useState<'chats' | 'status' | 'calls'>('chats');
   const [chatUsers, setChatUsers] = useState<{ [chatId: string]: User }>({});
   const [isLoading, setIsLoading] = useState(true);
   const [showNewChatDialog, setShowNewChatDialog] = useState(false);
+  const [showCreateGroupDialog, setShowCreateGroupDialog] = useState(false);
 
   // Update user online status
   useEffect(() => {
@@ -173,7 +177,7 @@ export const ChatSidebar = () => {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuItem className="gap-2">
+            <DropdownMenuItem className="gap-2" onClick={() => setShowCreateGroupDialog(true)}>
               <Users className="w-4 h-4" />
               New Group
             </DropdownMenuItem>
@@ -199,7 +203,7 @@ export const ChatSidebar = () => {
         {[
           { id: 'chats', icon: MessageCircle, label: 'Chats' },
           { id: 'status', icon: CircleDot, label: 'Status' },
-          { id: 'groups', icon: Users, label: 'Groups' },
+          { id: 'calls', icon: Phone, label: 'Calls' },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -220,60 +224,83 @@ export const ChatSidebar = () => {
       </div>
 
       {/* Search */}
-      <div className="p-3">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Search or start new chat"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10 h-10 bg-muted/50 border-0 focus-visible:ring-1 focus-visible:ring-primary/50 rounded-xl"
-          />
+      {activeTab === 'chats' && (
+        <div className="p-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Search or start new chat"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10 h-10 bg-muted/50 border-0 focus-visible:ring-1 focus-visible:ring-primary/50 rounded-xl"
+            />
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Chat List */}
-      <div className="flex-1 overflow-y-auto scrollbar-thin">
-        {isLoading ? (
-          <div className="flex items-center justify-center h-32">
-            <Loader2 className="w-6 h-6 text-primary animate-spin" />
-          </div>
-        ) : filteredChats.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-32 text-muted-foreground">
-            <MessageCircle className="w-8 h-8 mb-2 opacity-50" />
-            <p className="text-sm">No chats yet</p>
-            <p className="text-xs">Start a new conversation</p>
-          </div>
-        ) : (
-          filteredChats.map((chat, index) => {
-            const otherUser = chatUsers[chat.id];
-            if (!otherUser) return null;
-            return (
-              <ChatListItem
-                key={chat.id}
-                chat={chat}
-                user={otherUser}
-                isActive={activeChat?.id === chat.id}
-                onClick={() => setActiveChat(chat)}
-                style={{ animationDelay: `${index * 0.05}s` }}
-              />
-            );
-          })
-        )}
-      </div>
+      {/* Content based on active tab */}
+      {activeTab === 'chats' && (
+        <div className="flex-1 overflow-y-auto scrollbar-thin">
+          {isLoading ? (
+            <div className="flex items-center justify-center h-32">
+              <Loader2 className="w-6 h-6 text-primary animate-spin" />
+            </div>
+          ) : filteredChats.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-32 text-muted-foreground">
+              <MessageCircle className="w-8 h-8 mb-2 opacity-50" />
+              <p className="text-sm">No chats yet</p>
+              <p className="text-xs">Start a new conversation</p>
+            </div>
+          ) : (
+            filteredChats.map((chat, index) => {
+              const otherUser = chatUsers[chat.id];
+              if (!otherUser) return null;
+              return (
+                <ChatListItem
+                  key={chat.id}
+                  chat={chat}
+                  user={otherUser}
+                  isActive={activeChat?.id === chat.id}
+                  onClick={() => setActiveChat(chat)}
+                  style={{ animationDelay: `${index * 0.05}s` }}
+                />
+              );
+            })
+          )}
+        </div>
+      )}
+
+      {activeTab === 'status' && (
+        <div className="flex-1 overflow-hidden">
+          <StatusList />
+        </div>
+      )}
+
+      {activeTab === 'calls' && (
+        <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground">
+          <Phone className="w-12 h-12 mb-3 opacity-30" />
+          <p className="font-medium">Calls</p>
+          <p className="text-sm">Call history will appear here</p>
+        </div>
+      )}
 
       {/* New Chat FAB */}
-      <div className="absolute bottom-6 right-6">
-        <button 
-          onClick={() => setShowNewChatDialog(true)}
-          className="w-14 h-14 bg-primary hover:bg-primary/90 text-primary-foreground rounded-full shadow-lg shadow-primary/25 flex items-center justify-center transition-all hover:scale-105"
-        >
-          <Plus className="w-6 h-6" />
-        </button>
-      </div>
+      {activeTab === 'chats' && (
+        <div className="absolute bottom-6 right-6">
+          <button 
+            onClick={() => setShowNewChatDialog(true)}
+            className="w-14 h-14 bg-primary hover:bg-primary/90 text-primary-foreground rounded-full shadow-lg shadow-primary/25 flex items-center justify-center transition-all hover:scale-105"
+          >
+            <Plus className="w-6 h-6" />
+          </button>
+        </div>
+      )}
 
       {/* New Chat Dialog */}
       <NewChatDialog open={showNewChatDialog} onOpenChange={setShowNewChatDialog} />
+      
+      {/* Create Group Dialog */}
+      <CreateGroupDialog open={showCreateGroupDialog} onOpenChange={setShowCreateGroupDialog} />
     </div>
   );
 };

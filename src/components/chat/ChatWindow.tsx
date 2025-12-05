@@ -19,7 +19,9 @@ import {
   User as UserIcon,
   ArrowLeft,
   Loader2,
-  MessageCircle
+  MessageCircle,
+  X,
+  StopCircle
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -36,6 +38,8 @@ import { MessageBubble } from './MessageBubble';
 import { Message, User } from '@/types/chat';
 import { formatDistanceToNow } from 'date-fns';
 import { db } from '@/lib/firebase';
+import { uploadToCloudinary } from '@/lib/cloudinary';
+import { toast } from '@/hooks/use-toast';
 import { 
   collection, 
   query, 
@@ -63,7 +67,16 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
   const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [filePreview, setFilePreview] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -258,6 +271,186 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
     }
   };
 
+  // Handle file selection
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>, type?: string) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file size (50MB max)
+    if (file.size > 50 * 1024 * 1024) {
+      toast({ title: 'File too large', description: 'Maximum file size is 50MB', variant: 'destructive' });
+      return;
+    }
+
+    setSelectedFile(file);
+    if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
+      setFilePreview(URL.createObjectURL(file));
+    }
+    setShowAttachMenu(false);
+  };
+
+  // Cancel file selection
+  const cancelFileSelection = () => {
+    setSelectedFile(null);
+    setFilePreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  // Send media message
+  const handleSendMedia = async () => {
+    if (!selectedFile || !activeChat?.id || !currentUser?.uid) return;
+
+    setIsSending(true);
+    setUploadProgress(0);
+
+    try {
+      const result = await uploadToCloudinary(selectedFile, {
+        folder: 'messages',
+        onProgress: (p) => setUploadProgress(p.percent),
+      });
+
+      const isImage = selectedFile.type.startsWith('image/');
+      const isVideo = selectedFile.type.startsWith('video/');
+      const messageType = isImage ? 'image' : isVideo ? 'video' : 'document';
+
+      const messagesRef = collection(db, 'chats', activeChat.id, 'messages');
+      await addDoc(messagesRef, {
+        chatId: activeChat.id,
+        senderId: currentUser.uid,
+        content: '',
+        type: messageType,
+        mediaUrl: result.url,
+        thumbnail: result.thumbnail,
+        fileName: selectedFile.name,
+        fileSize: selectedFile.size,
+        mimeType: selectedFile.type,
+        caption: message.trim() || undefined,
+        timestamp: serverTimestamp(),
+        status: 'sent',
+        forwarded: false,
+        deletedForEveryone: false,
+        deletedFor: [],
+        reactions: {},
+      });
+
+      // Update chat's last message
+      const chatRef = doc(db, 'chats', activeChat.id);
+      await updateDoc(chatRef, {
+        lastMessage: {
+          type: messageType,
+          content: messageType === 'image' ? '📷 Photo' : messageType === 'video' ? '🎥 Video' : '📄 Document',
+          timestamp: new Date(),
+        },
+        lastMessageAt: serverTimestamp(),
+      });
+
+      cancelFileSelection();
+      setMessage('');
+    } catch (error) {
+      console.error('Error sending media:', error);
+      toast({ title: 'Failed to send', variant: 'destructive' });
+    } finally {
+      setIsSending(false);
+      setUploadProgress(0);
+    }
+  };
+
+  // Voice recording
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        audioChunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        await sendVoiceMessage(audioBlob);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingTime(0);
+
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingTime(t => t + 1);
+      }, 1000);
+    } catch (error) {
+      console.error('Error starting recording:', error);
+      toast({ title: 'Cannot access microphone', variant: 'destructive' });
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+      }
+    }
+  };
+
+  const cancelRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      audioChunksRef.current = [];
+      setIsRecording(false);
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+      }
+    }
+  };
+
+  const sendVoiceMessage = async (audioBlob: Blob) => {
+    if (!activeChat?.id || !currentUser?.uid || audioChunksRef.current.length === 0) return;
+
+    setIsSending(true);
+    try {
+      const audioFile = new File([audioBlob], 'voice-message.webm', { type: 'audio/webm' });
+      const result = await uploadToCloudinary(audioFile, { folder: 'voice' });
+
+      const messagesRef = collection(db, 'chats', activeChat.id, 'messages');
+      await addDoc(messagesRef, {
+        chatId: activeChat.id,
+        senderId: currentUser.uid,
+        content: '',
+        type: 'voice',
+        mediaUrl: result.url,
+        duration: recordingTime,
+        timestamp: serverTimestamp(),
+        status: 'sent',
+        forwarded: false,
+        deletedForEveryone: false,
+        deletedFor: [],
+        reactions: {},
+      });
+
+      const chatRef = doc(db, 'chats', activeChat.id);
+      await updateDoc(chatRef, {
+        lastMessage: { type: 'voice', content: '🎤 Voice message', timestamp: new Date() },
+        lastMessageAt: serverTimestamp(),
+      });
+    } catch (error) {
+      console.error('Error sending voice message:', error);
+      toast({ title: 'Failed to send voice message', variant: 'destructive' });
+    } finally {
+      setIsSending(false);
+      setRecordingTime(0);
+    }
+  };
+
+  const formatRecordingTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
   // Use the chat partner or provided otherUser
   const displayUser = otherUser || chatPartner;
 
@@ -376,73 +569,148 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
 
       {/* Input */}
       <div className="bg-card border-t border-border p-3">
-        <div className="flex items-end gap-2">
-          <button 
-            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-            className="p-2.5 hover:bg-muted rounded-full transition-colors flex-shrink-0"
-          >
-            <Smile className="w-6 h-6 text-muted-foreground" />
-          </button>
-
-          <Popover open={showAttachMenu} onOpenChange={setShowAttachMenu}>
-            <PopoverTrigger asChild>
-              <button className="p-2.5 hover:bg-muted rounded-full transition-colors flex-shrink-0">
-                <Paperclip className="w-6 h-6 text-muted-foreground" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent side="top" align="start" className="w-auto p-2">
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { icon: Image, label: 'Photos', color: 'bg-purple-500' },
-                  { icon: Camera, label: 'Camera', color: 'bg-pink-500' },
-                  { icon: FileText, label: 'Document', color: 'bg-blue-500' },
-                  { icon: UserIcon, label: 'Contact', color: 'bg-cyan-500' },
-                  { icon: MapPin, label: 'Location', color: 'bg-green-500' },
-                ].map((item) => (
-                  <button
-                    key={item.label}
-                    className="flex flex-col items-center gap-1 p-3 hover:bg-muted rounded-xl transition-colors"
-                    onClick={() => setShowAttachMenu(false)}
-                  >
-                    <div className={`w-10 h-10 ${item.color} rounded-full flex items-center justify-center`}>
-                      <item.icon className="w-5 h-5 text-white" />
-                    </div>
-                    <span className="text-xs text-muted-foreground">{item.label}</span>
-                  </button>
-                ))}
+        {/* File Preview */}
+        {selectedFile && (
+          <div className="mb-3 p-3 bg-muted rounded-lg">
+            <div className="flex items-center gap-3">
+              {filePreview && selectedFile.type.startsWith('image/') && (
+                <img src={filePreview} alt="Preview" className="w-16 h-16 object-cover rounded" />
+              )}
+              {filePreview && selectedFile.type.startsWith('video/') && (
+                <video src={filePreview} className="w-16 h-16 object-cover rounded" />
+              )}
+              {!filePreview && (
+                <div className="w-12 h-12 bg-primary/10 rounded flex items-center justify-center">
+                  <FileText className="w-6 h-6 text-primary" />
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{selectedFile.name}</p>
+                <p className="text-xs text-muted-foreground">
+                  {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+                </p>
+                {uploadProgress > 0 && (
+                  <div className="mt-1 h-1 bg-muted-foreground/20 rounded overflow-hidden">
+                    <div 
+                      className="h-full bg-primary transition-all" 
+                      style={{ width: `${uploadProgress}%` }} 
+                    />
+                  </div>
+                )}
               </div>
-            </PopoverContent>
-          </Popover>
-
-          <div className="flex-1 relative">
-            <Input
-              placeholder="Type a message"
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              onKeyPress={handleKeyPress}
-              disabled={isSending}
-              className="h-11 bg-muted/50 border-0 focus-visible:ring-1 focus-visible:ring-primary/50 rounded-xl pr-12"
-            />
+              <button onClick={cancelFileSelection} className="p-1 hover:bg-muted rounded">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
           </div>
+        )}
 
-          <button
-            onClick={message.trim() && !isSending ? handleSendMessage : undefined}
-            disabled={isSending}
-            className={`p-2.5 rounded-full transition-all flex-shrink-0 ${
-              message.trim() && !isSending
-                ? 'bg-primary hover:bg-primary/90 text-primary-foreground'
-                : 'hover:bg-muted text-muted-foreground'
-            }`}
-          >
-            {isSending ? (
-              <Loader2 className="w-6 h-6 animate-spin" />
-            ) : message.trim() ? (
-              <Send className="w-6 h-6" />
-            ) : (
-              <Mic className="w-6 h-6" />
-            )}
-          </button>
-        </div>
+        {/* Recording UI */}
+        {isRecording ? (
+          <div className="flex items-center gap-3 p-2 bg-destructive/10 rounded-xl">
+            <button 
+              onClick={cancelRecording}
+              className="p-2 hover:bg-destructive/20 rounded-full"
+            >
+              <X className="w-5 h-5 text-destructive" />
+            </button>
+            <div className="flex-1 flex items-center gap-2">
+              <span className="w-2 h-2 bg-destructive rounded-full animate-pulse" />
+              <span className="text-destructive font-medium">{formatRecordingTime(recordingTime)}</span>
+            </div>
+            <button 
+              onClick={stopRecording}
+              className="p-2 bg-primary hover:bg-primary/90 rounded-full"
+            >
+              <Send className="w-5 h-5 text-primary-foreground" />
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-end gap-2">
+            <button 
+              onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+              className="p-2.5 hover:bg-muted rounded-full transition-colors flex-shrink-0"
+            >
+              <Smile className="w-6 h-6 text-muted-foreground" />
+            </button>
+
+            <Popover open={showAttachMenu} onOpenChange={setShowAttachMenu}>
+              <PopoverTrigger asChild>
+                <button className="p-2.5 hover:bg-muted rounded-full transition-colors flex-shrink-0">
+                  <Paperclip className="w-6 h-6 text-muted-foreground" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent side="top" align="start" className="w-auto p-2">
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { icon: Image, label: 'Photos', color: 'bg-purple-500', accept: 'image/*' },
+                    { icon: Camera, label: 'Camera', color: 'bg-pink-500', accept: 'image/*;capture=camera' },
+                    { icon: FileText, label: 'Document', color: 'bg-blue-500', accept: '*/*' },
+                    { icon: UserIcon, label: 'Contact', color: 'bg-cyan-500', accept: '' },
+                    { icon: MapPin, label: 'Location', color: 'bg-green-500', accept: '' },
+                  ].map((item) => (
+                    <button
+                      key={item.label}
+                      className="flex flex-col items-center gap-1 p-3 hover:bg-muted rounded-xl transition-colors"
+                      onClick={() => {
+                        if (item.accept) {
+                          const input = document.createElement('input');
+                          input.type = 'file';
+                          input.accept = item.accept;
+                          input.onchange = (e) => handleFileSelect(e as any);
+                          input.click();
+                        }
+                        setShowAttachMenu(false);
+                      }}
+                    >
+                      <div className={`w-10 h-10 ${item.color} rounded-full flex items-center justify-center`}>
+                        <item.icon className="w-5 h-5 text-white" />
+                      </div>
+                      <span className="text-xs text-muted-foreground">{item.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            <div className="flex-1 relative">
+              <Input
+                placeholder={selectedFile ? "Add a caption..." : "Type a message"}
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                onKeyPress={handleKeyPress}
+                disabled={isSending}
+                className="h-11 bg-muted/50 border-0 focus-visible:ring-1 focus-visible:ring-primary/50 rounded-xl pr-12"
+              />
+            </div>
+
+            <button
+              onClick={() => {
+                if (selectedFile) {
+                  handleSendMedia();
+                } else if (message.trim() && !isSending) {
+                  handleSendMessage();
+                } else if (!message.trim() && !isSending) {
+                  startRecording();
+                }
+              }}
+              disabled={isSending}
+              className={`p-2.5 rounded-full transition-all flex-shrink-0 ${
+                (message.trim() || selectedFile) && !isSending
+                  ? 'bg-primary hover:bg-primary/90 text-primary-foreground'
+                  : 'hover:bg-muted text-muted-foreground'
+              }`}
+            >
+              {isSending ? (
+                <Loader2 className="w-6 h-6 animate-spin" />
+              ) : message.trim() || selectedFile ? (
+                <Send className="w-6 h-6" />
+              ) : (
+                <Mic className="w-6 h-6" />
+              )}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
