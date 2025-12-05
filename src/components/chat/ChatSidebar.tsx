@@ -24,8 +24,9 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { signOut } from 'firebase/auth';
 import { auth, db } from '@/lib/firebase';
-import { collection, query, where, onSnapshot, doc, getDoc, orderBy } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, getDoc, orderBy, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { ChatListItem } from './ChatListItem';
+import { NewChatDialog } from './NewChatDialog';
 import { Chat, User } from '@/types/chat';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -35,6 +36,45 @@ export const ChatSidebar = () => {
   const [activeTab, setActiveTab] = useState<'chats' | 'status' | 'groups'>('chats');
   const [chatUsers, setChatUsers] = useState<{ [chatId: string]: User }>({});
   const [isLoading, setIsLoading] = useState(true);
+  const [showNewChatDialog, setShowNewChatDialog] = useState(false);
+
+  // Update user online status
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    const updateOnlineStatus = async (online: boolean) => {
+      try {
+        await updateDoc(doc(db, 'users', user.uid), {
+          online,
+          lastSeen: serverTimestamp(),
+        });
+      } catch (error) {
+        console.error('Error updating online status:', error);
+      }
+    };
+
+    // Set online when component mounts
+    updateOnlineStatus(true);
+
+    // Set offline when window closes or user leaves
+    const handleBeforeUnload = () => updateOnlineStatus(false);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        updateOnlineStatus(false);
+      } else {
+        updateOnlineStatus(true);
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      updateOnlineStatus(false);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [user?.uid]);
 
   // Fetch chats from Firebase in real-time
   useEffect(() => {
@@ -224,10 +264,16 @@ export const ChatSidebar = () => {
 
       {/* New Chat FAB */}
       <div className="absolute bottom-6 right-6">
-        <button className="w-14 h-14 bg-primary hover:bg-primary/90 text-primary-foreground rounded-full shadow-lg shadow-primary/25 flex items-center justify-center transition-all hover:scale-105">
+        <button 
+          onClick={() => setShowNewChatDialog(true)}
+          className="w-14 h-14 bg-primary hover:bg-primary/90 text-primary-foreground rounded-full shadow-lg shadow-primary/25 flex items-center justify-center transition-all hover:scale-105"
+        >
           <Plus className="w-6 h-6" />
         </button>
       </div>
+
+      {/* New Chat Dialog */}
+      <NewChatDialog open={showNewChatDialog} onOpenChange={setShowNewChatDialog} />
     </div>
   );
 };

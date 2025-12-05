@@ -1,16 +1,29 @@
+import { useState } from 'react';
 import { Message, User } from '@/types/chat';
-import { Check, CheckCheck, Clock } from 'lucide-react';
+import { Check, CheckCheck, Clock, Trash2, Copy, MoreVertical } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { db } from '@/lib/firebase';
+import { doc, deleteDoc, updateDoc } from 'firebase/firestore';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { toast } from '@/hooks/use-toast';
 
 interface MessageBubbleProps {
   message: Message;
   isOwn: boolean;
   showAvatar?: boolean;
   user?: User;
+  chatId?: string;
 }
 
-export const MessageBubble = ({ message, isOwn, showAvatar, user }: MessageBubbleProps) => {
+export const MessageBubble = ({ message, isOwn, showAvatar, user, chatId }: MessageBubbleProps) => {
+  const [showMenu, setShowMenu] = useState(false);
+
   const getStatusIcon = () => {
     switch (message.status) {
       case 'sending':
@@ -23,6 +36,22 @@ export const MessageBubble = ({ message, isOwn, showAvatar, user }: MessageBubbl
         return <CheckCheck className="w-3.5 h-3.5 text-tick-read" />;
       default:
         return null;
+    }
+  };
+
+  const handleCopyMessage = () => {
+    navigator.clipboard.writeText(message.content);
+    toast({ title: 'Copied', description: 'Message copied to clipboard' });
+  };
+
+  const handleDeleteMessage = async () => {
+    if (!chatId) return;
+    try {
+      await deleteDoc(doc(db, 'chats', chatId, 'messages', message.id));
+      toast({ title: 'Deleted', description: 'Message deleted' });
+    } catch (error) {
+      console.error('Error deleting message:', error);
+      toast({ title: 'Error', description: 'Failed to delete message', variant: 'destructive' });
     }
   };
 
@@ -41,6 +70,32 @@ export const MessageBubble = ({ message, isOwn, showAvatar, user }: MessageBubbl
           isOwn ? 'animate-slide-in-right' : 'animate-slide-in-left'
         )}
       >
+        {/* Message Options Menu */}
+        <div className={cn(
+          'absolute top-1 opacity-0 group-hover:opacity-100 transition-opacity z-10',
+          isOwn ? 'left-0 -translate-x-full pr-1' : 'right-0 translate-x-full pl-1'
+        )}>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="p-1 rounded-full bg-card/80 hover:bg-card shadow-sm">
+                <MoreVertical className="w-4 h-4 text-muted-foreground" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align={isOwn ? 'end' : 'start'}>
+              <DropdownMenuItem onClick={handleCopyMessage} className="gap-2">
+                <Copy className="w-4 h-4" />
+                Copy
+              </DropdownMenuItem>
+              {isOwn && (
+                <DropdownMenuItem onClick={handleDeleteMessage} className="gap-2 text-destructive">
+                  <Trash2 className="w-4 h-4" />
+                  Delete
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+
         <div
           className={cn(
             'px-3 py-2 shadow-sm',

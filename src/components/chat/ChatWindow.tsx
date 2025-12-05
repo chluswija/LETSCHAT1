@@ -62,6 +62,7 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
   const [chatPartner, setChatPartner] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -123,13 +124,74 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
       setMessages(messagesData);
       setIsLoading(false);
       setTimeout(scrollToBottom, 100);
+
+      // Mark messages as seen
+      if (currentUser?.uid && messagesData.length > 0) {
+        const unseenMessages = messagesData.filter(
+          (msg) => msg.senderId !== currentUser.uid && msg.status !== 'seen'
+        );
+        unseenMessages.forEach(async (msg) => {
+          try {
+            const msgRef = doc(db, 'chats', activeChat.id, 'messages', msg.id);
+            await updateDoc(msgRef, { status: 'seen' });
+          } catch (error) {
+            console.error('Error marking message as seen:', error);
+          }
+        });
+      }
     }, (error) => {
       console.error('Error fetching messages:', error);
       setIsLoading(false);
     });
 
     return () => unsubscribe();
-  }, [activeChat?.id, setMessages]);
+  }, [activeChat?.id, setMessages, currentUser?.uid]);
+
+  // Listen for typing status from other user
+  useEffect(() => {
+    if (!activeChat?.id) return;
+
+    const chatRef = doc(db, 'chats', activeChat.id);
+    const unsubscribe = onSnapshot(chatRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        const otherUserId = activeChat.participants.find(p => p !== currentUser?.uid);
+        if (otherUserId && data.typing?.[otherUserId]) {
+          setIsTyping(true);
+        } else {
+          setIsTyping(false);
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, [activeChat?.id, activeChat?.participants, currentUser?.uid]);
+
+  // Update typing status when user types
+  const updateTypingStatus = async (typing: boolean) => {
+    if (!activeChat?.id || !currentUser?.uid) return;
+    try {
+      const chatRef = doc(db, 'chats', activeChat.id);
+      await updateDoc(chatRef, {
+        [`typing.${currentUser.uid}`]: typing,
+      });
+    } catch (error) {
+      console.error('Error updating typing status:', error);
+    }
+  };
+
+  // Debounced typing indicator
+  useEffect(() => {
+    if (message.trim()) {
+      updateTypingStatus(true);
+      const timeout = setTimeout(() => {
+        updateTypingStatus(false);
+      }, 2000);
+      return () => clearTimeout(timeout);
+    } else {
+      updateTypingStatus(false);
+    }
+  }, [message, activeChat?.id, currentUser?.uid]);
 
   useEffect(() => {
     scrollToBottom();
@@ -240,7 +302,16 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
         <div className="flex-1 min-w-0 cursor-pointer">
           <h3 className="font-semibold text-foreground truncate">{displayUser?.displayName || 'Loading...'}</h3>
           <p className="text-xs text-muted-foreground">
-            {displayUser?.online ? (
+            {isTyping ? (
+              <span className="text-primary flex items-center gap-1">
+                typing
+                <span className="flex gap-0.5">
+                  <span className="w-1 h-1 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0s' }} />
+                  <span className="w-1 h-1 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+                  <span className="w-1 h-1 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0.4s' }} />
+                </span>
+              </span>
+            ) : displayUser?.online ? (
               <span className="text-online">online</span>
             ) : displayUser?.lastSeen ? (
               `last seen ${formatDistanceToNow(displayUser.lastSeen, { addSuffix: true })}`
@@ -296,6 +367,7 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
               isOwn={msg.senderId === currentUser?.uid}
               showAvatar={index === 0 || messages[index - 1].senderId !== msg.senderId}
               user={msg.senderId === currentUser?.uid ? undefined : displayUser || undefined}
+              chatId={activeChat?.id}
             />
           ))
         )}
