@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { collection, query, where, getDocs, doc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { useState, useEffect } from 'react';
+import { collection, query, where, getDocs, addDoc, doc, updateDoc, arrayUnion, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuthStore } from '@/store/authStore';
 import { User } from '@/types/chat';
@@ -41,103 +41,130 @@ export const AddContactDialog = ({ open, onOpenChange, onContactAdded }: AddCont
     setFoundUser(null);
   };
 
-  // Search for user by phone number
-  const searchUser = async () => {
-    if (!phoneNumber.trim() || phoneNumber.length < 10) {
-      toast({ title: 'Enter a valid phone number', variant: 'destructive' });
-      return;
-    }
-
-    setIsSearching(true);
-    setSearchStatus('idle');
-    
-    try {
-      const usersRef = collection(db, 'users');
-      // Normalize phone number for search
-      const normalizedPhone = phoneNumber.replace(/[\s\-()]/g, '');
-      
-      // Search for exact match or partial match
-      const allUsersSnapshot = await getDocs(usersRef);
-      let found: User | null = null;
-      
-      allUsersSnapshot.forEach((docSnap) => {
-        const userData = { ...docSnap.data(), uid: docSnap.id } as User;
-        const userPhone = (userData.phone || '').replace(/[\s\-()]/g, '');
-        
-        // Check if phones match (with or without country code)
-        if (
-          userPhone === normalizedPhone ||
-          userPhone.endsWith(normalizedPhone) ||
-          normalizedPhone.endsWith(userPhone)
-        ) {
-          if (userData.uid !== currentUser?.uid) {
-            found = userData;
-          }
-        }
-      });
-
-      if (found) {
-        setFoundUser(found);
-        setSearchStatus('found');
-        // Pre-fill contact name if user has a display name
-        if (!contactName && found.displayName) {
-          setContactName(found.displayName);
-        }
-      } else {
+  // Auto-search for user by phone number
+  useEffect(() => {
+    const searchUser = async () => {
+      if (!phoneNumber.trim() || phoneNumber.length < 10) {
         setFoundUser(null);
-        setSearchStatus('not-found');
+        setSearchStatus('idle');
+        return;
       }
-    } catch (error) {
-      console.error('Error searching user:', error);
-      toast({ title: 'Error searching', variant: 'destructive' });
-    } finally {
-      setIsSearching(false);
-    }
-  };
 
-  // Save contact
+      setIsSearching(true);
+      setSearchStatus('idle');
+      
+      try {
+        const usersRef = collection(db, 'users');
+        // Normalize phone number for search
+        const normalizedPhone = phoneNumber.replace(/[\s\-()]/g, '');
+        
+        // Search for exact match or partial match
+        const allUsersSnapshot = await getDocs(usersRef);
+        let found: User | null = null;
+        
+        allUsersSnapshot.forEach((docSnap) => {
+          const userData = { ...docSnap.data(), uid: docSnap.id } as User;
+          const userPhone = (userData.phone || '').replace(/[\s\-()]/g, '');
+          
+          // Check if phones match (with or without country code)
+          if (
+            userPhone === normalizedPhone ||
+            userPhone.endsWith(normalizedPhone) ||
+            normalizedPhone.endsWith(userPhone)
+          ) {
+            if (userData.uid !== currentUser?.uid) {
+              found = userData;
+            }
+          }
+        });
+
+        if (found) {
+          setFoundUser(found);
+          setSearchStatus('found');
+          // Pre-fill contact name if user has a display name
+          if (!contactName && found.displayName) {
+            setContactName(found.displayName);
+          }
+        } else {
+          setFoundUser(null);
+          setSearchStatus('not-found');
+        }
+      } catch (error) {
+        console.error('Error searching user:', error);
+      } finally {
+        setIsSearching(false);
+      }
+    };
+
+    const debounceTimer = setTimeout(searchUser, 500);
+    return () => clearTimeout(debounceTimer);
+  }, [phoneNumber, currentUser?.uid]);
+
+  // Save contact (even if user not found on platform yet)
   const saveContact = async () => {
-    if (!foundUser || !currentUser?.uid || !contactName.trim()) {
-      toast({ title: 'Enter a name for this contact', variant: 'destructive' });
+    if (!currentUser?.uid || !contactName.trim() || !phoneNumber.trim()) {
+      toast({ title: 'Enter both name and phone number', variant: 'destructive' });
       return;
     }
 
     setIsSaving(true);
     try {
-      // Add to user's contacts list
-      const userRef = doc(db, 'users', currentUser.uid);
-      await updateDoc(userRef, {
-        contacts: arrayUnion(foundUser.uid),
+      const contactsRef = collection(db, 'users', currentUser.uid, 'contacts');
+      const normalizedPhone = phoneNumber.replace(/[\s\-()]/g, '');
+      
+      // Check if contact already exists
+      const existingContacts = await getDocs(contactsRef);
+      let alreadyExists = false;
+      
+      existingContacts.forEach((docSnap) => {
+        const data = docSnap.data();
+        const existingPhone = (data.phone || '').replace(/[\s\-()]/g, '');
+        if (existingPhone === normalizedPhone || (foundUser && data.userId === foundUser.uid)) {
+          alreadyExists = true;
+        }
       });
 
-      // Save contact with custom name in a subcollection
-      const contactsRef = collection(db, 'users', currentUser.uid, 'contacts');
-      const existingContact = await getDocs(
-        query(contactsRef, where('userId', '==', foundUser.uid))
-      );
-
-      if (existingContact.empty) {
-        const { addDoc } = await import('firebase/firestore');
-        await addDoc(contactsRef, {
-          oderId: foundUser.uid,
-          userId: foundUser.uid,
-          name: contactName.trim(),
-          phone: foundUser.phone,
-          photoURL: foundUser.photoURL,
-          savedAt: new Date(),
-        });
+      if (alreadyExists) {
+        toast({ title: 'Contact already exists', variant: 'destructive' });
+        setIsSaving(false);
+        return;
       }
 
-      // Update local user state
-      if (currentUser) {
+      // Save contact to subcollection
+      await addDoc(contactsRef, {
+        userId: foundUser?.uid || `phone_${normalizedPhone}`,
+        name: contactName.trim(),
+        phone: normalizedPhone,
+        photoURL: foundUser?.photoURL || null,
+        savedAt: serverTimestamp(),
+        onPlatform: !!foundUser,
+      });
+
+      // If user is on platform, add to contacts array
+      if (foundUser?.uid) {
+        const userRef = doc(db, 'users', currentUser.uid);
+        await updateDoc(userRef, {
+          contacts: arrayUnion(foundUser.uid),
+        });
+
+        // Update local user state
         setUser({
           ...currentUser,
           contacts: [...(currentUser.contacts || []), foundUser.uid],
         });
       }
 
-      toast({ title: 'Contact saved!', description: `${contactName} has been added to your contacts` });
-      onContactAdded?.(foundUser);
+      toast({ 
+        title: 'Contact saved!', 
+        description: foundUser 
+          ? `${contactName} has been added to your contacts` 
+          : `${contactName} saved. You can chat when they join LetsChat.`
+      });
+      
+      if (foundUser) {
+        onContactAdded?.(foundUser);
+      }
+      
       onOpenChange(false);
       resetForm();
     } catch (error) {
@@ -169,32 +196,23 @@ export const AddContactDialog = ({ open, onOpenChange, onContactAdded }: AddCont
           {/* Phone Number Input */}
           <div className="space-y-2">
             <Label htmlFor="phone">Phone Number</Label>
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  id="phone"
-                  placeholder="+1 234 567 8900"
-                  value={phoneNumber}
-                  onChange={(e) => handlePhoneChange(e.target.value)}
-                  className="pl-10"
-                  type="tel"
-                />
-              </div>
-              <Button 
-                onClick={searchUser} 
-                disabled={isSearching || phoneNumber.length < 10}
-                variant="secondary"
-              >
-                {isSearching ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  'Find'
-                )}
-              </Button>
+            <div className="relative">
+              <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                id="phone"
+                placeholder="+1 234 567 8900"
+                value={phoneNumber}
+                onChange={(e) => handlePhoneChange(e.target.value)}
+                className="pl-10"
+                type="tel"
+                autoFocus
+              />
+              {isSearching && (
+                <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-primary" />
+              )}
             </div>
             <p className="text-xs text-muted-foreground">
-              Enter the phone number with country code (e.g., +1 for US)
+              Enter with country code (e.g., +1 234 567 8900)
             </p>
           </div>
 
@@ -232,16 +250,32 @@ export const AddContactDialog = ({ open, onOpenChange, onContactAdded }: AddCont
             </div>
           )}
 
-          {/* Not Found */}
+          {/* Not Found - But still allow saving */}
           {searchStatus === 'not-found' && (
-            <div className="p-4 bg-destructive/10 rounded-lg border border-destructive/20 text-center">
-              <AlertCircle className="w-10 h-10 text-destructive mx-auto mb-2" />
-              <p className="font-medium text-destructive">User not found</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                This phone number is not registered on LETSCHAT.
-                <br />
-                Invite them to join!
-              </p>
+            <div className="space-y-3">
+              <div className="p-4 bg-amber-500/10 rounded-lg border border-amber-500/20">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-medium text-foreground">Not on LetsChat yet</p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      You can still save this contact. They'll appear when they join.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Contact Name Input for non-registered users */}
+              <div className="space-y-2">
+                <Label htmlFor="name-notfound">Contact name</Label>
+                <Input
+                  id="name-notfound"
+                  placeholder="e.g., John Doe"
+                  value={contactName}
+                  onChange={(e) => setContactName(e.target.value)}
+                  autoFocus
+                />
+              </div>
             </div>
           )}
         </div>
@@ -252,7 +286,7 @@ export const AddContactDialog = ({ open, onOpenChange, onContactAdded }: AddCont
           </Button>
           <Button
             onClick={saveContact}
-            disabled={!foundUser || !contactName.trim() || isSaving}
+            disabled={!contactName.trim() || !phoneNumber.trim() || phoneNumber.length < 10 || isSaving}
           >
             {isSaving ? (
               <>
