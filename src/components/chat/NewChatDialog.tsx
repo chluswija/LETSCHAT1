@@ -65,6 +65,12 @@ export const NewChatDialog = ({ open, onOpenChange, onNewGroup }: NewChatDialogP
       for (const docSnap of snapshot.docs) {
         const data = docSnap.data();
         
+        // Skip if this is the current user
+        if (data.userId === currentUser.uid) {
+          console.log('Skipping current user from contacts list');
+          continue;
+        }
+        
         // Check if this is a real user on the platform
         const isRealUser = data.userId && !data.userId.startsWith('phone_');
         

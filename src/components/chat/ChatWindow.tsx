@@ -3,6 +3,8 @@ import { useChatStore } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Input } from '@/components/ui/input';
+import data from '@emoji-mart/data';
+import Picker from '@emoji-mart/react';
 import { 
   Phone, 
   Video, 
@@ -686,12 +688,24 @@ export const ChatWindow = ({ otherUser, onBack }: ChatWindowProps) => {
           </div>
         ) : (
           <div className="flex items-end gap-2">
-            <button 
-              onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-              className="p-2.5 hover:bg-muted rounded-full transition-colors flex-shrink-0"
-            >
-              <Smile className="w-6 h-6 text-muted-foreground" />
-            </button>
+            <Popover open={showEmojiPicker} onOpenChange={setShowEmojiPicker}>
+              <PopoverTrigger asChild>
+                <button 
+                  className="p-2.5 hover:bg-muted rounded-full transition-colors flex-shrink-0"
+                >
+                  <Smile className="w-6 h-6 text-muted-foreground" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent side="top" align="start" className="w-auto p-0 border-0">
+                <Picker 
+                  data={data} 
+                  onEmojiSelect={handleEmojiSelect}
+                  theme="light"
+                  previewPosition="none"
+                  skinTonePosition="none"
+                />
+              </PopoverContent>
+            </Popover>
 
             <Popover open={showAttachMenu} onOpenChange={setShowAttachMenu}>
               <PopoverTrigger asChild>

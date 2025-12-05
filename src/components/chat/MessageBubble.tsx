@@ -14,7 +14,8 @@ import {
   MapPin,
   Forward,
   Star,
-  Reply
+  Reply,
+  Share2
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -45,6 +46,7 @@ export const MessageBubble = ({ message, isOwn, showAvatar, user, chatId }: Mess
   const [showMenu, setShowMenu] = useState(false);
   const [showMediaPreview, setShowMediaPreview] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [showForwardDialog, setShowForwardDialog] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -88,6 +90,41 @@ export const MessageBubble = ({ message, isOwn, showAvatar, user, chatId }: Mess
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      toast({ title: 'Downloaded', description: 'Media saved to your device' });
+    }
+  };
+
+  const handleForward = () => {
+    setShowForwardDialog(true);
+    toast({ title: 'Forward', description: 'Select a chat to forward this message' });
+  };
+
+  const handleShare = async () => {
+    try {
+      if (navigator.share) {
+        const shareData: any = { title: 'LetsChat Message' };
+        
+        if (message.content) {
+          shareData.text = message.content;
+        }
+        
+        if (message.mediaUrl) {
+          shareData.url = message.mediaUrl;
+        }
+        
+        await navigator.share(shareData);
+        toast({ title: 'Shared', description: 'Message shared successfully' });
+      } else {
+        // Fallback: Copy to clipboard
+        const textToCopy = message.content || message.mediaUrl || '';
+        await navigator.clipboard.writeText(textToCopy);
+        toast({ title: 'Copied', description: 'Message copied to clipboard for sharing' });
+      }
+    } catch (error) {
+      if ((error as any).name !== 'AbortError') {
+        console.error('Error sharing:', error);
+        toast({ title: 'Error', description: 'Could not share message', variant: 'destructive' });
+      }
     }
   };
 
@@ -143,9 +180,13 @@ export const MessageBubble = ({ message, isOwn, showAvatar, user, chatId }: Mess
                 <Reply className="w-4 h-4" />
                 Reply
               </DropdownMenuItem>
-              <DropdownMenuItem className="gap-2">
+              <DropdownMenuItem onClick={handleForward} className="gap-2">
                 <Forward className="w-4 h-4" />
                 Forward
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleShare} className="gap-2">
+                <Share2 className="w-4 h-4" />
+                Share
               </DropdownMenuItem>
               <DropdownMenuItem className="gap-2">
                 <Star className="w-4 h-4" />
@@ -195,42 +236,94 @@ export const MessageBubble = ({ message, isOwn, showAvatar, user, chatId }: Mess
 
           {/* Image message */}
           {message.type === 'image' && message.mediaUrl && (
-            <div 
-              className="cursor-pointer"
-              onClick={() => setShowMediaPreview(true)}
-            >
-              <img 
-                src={message.mediaUrl} 
-                alt="Image"
-                className="max-w-full rounded-xl max-h-80 object-cover"
-                loading="lazy"
-              />
-              {message.caption && (
-                <p className="text-foreground text-sm p-2">{message.caption}</p>
-              )}
+            <div className="relative group/image">
+              <div 
+                className="cursor-pointer"
+                onClick={() => setShowMediaPreview(true)}
+              >
+                <img 
+                  src={message.mediaUrl} 
+                  alt="Image"
+                  className="max-w-full rounded-xl max-h-80 object-cover"
+                  loading="lazy"
+                />
+                {message.caption && (
+                  <p className="text-foreground text-sm p-2">{message.caption}</p>
+                )}
+              </div>
+              {/* Quick Actions for Images */}
+              <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover/image:opacity-100 transition-opacity">
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleDownload(); }}
+                  className="p-2 bg-black/60 hover:bg-black/80 rounded-full backdrop-blur-sm"
+                  title="Download"
+                >
+                  <Download className="w-4 h-4 text-white" />
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleForward(); }}
+                  className="p-2 bg-black/60 hover:bg-black/80 rounded-full backdrop-blur-sm"
+                  title="Forward"
+                >
+                  <Forward className="w-4 h-4 text-white" />
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleShare(); }}
+                  className="p-2 bg-black/60 hover:bg-black/80 rounded-full backdrop-blur-sm"
+                  title="Share"
+                >
+                  <Share2 className="w-4 h-4 text-white" />
+                </button>
+              </div>
             </div>
           )}
 
           {/* Video message */}
           {message.type === 'video' && message.mediaUrl && (
-            <div 
-              className="cursor-pointer relative"
-              onClick={() => setShowMediaPreview(true)}
-            >
-              <video 
-                ref={videoRef}
-                src={message.mediaUrl}
-                poster={message.thumbnail}
-                className="max-w-full rounded-xl max-h-80 object-cover"
-              />
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-12 h-12 bg-black/50 rounded-full flex items-center justify-center">
-                  <Play className="w-6 h-6 text-white" />
+            <div className="relative group/video">
+              <div 
+                className="cursor-pointer relative"
+                onClick={() => setShowMediaPreview(true)}
+              >
+                <video 
+                  ref={videoRef}
+                  src={message.mediaUrl}
+                  poster={message.thumbnail}
+                  className="max-w-full rounded-xl max-h-80 object-cover"
+                />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="w-12 h-12 bg-black/50 rounded-full flex items-center justify-center">
+                    <Play className="w-6 h-6 text-white" />
+                  </div>
                 </div>
+                {message.caption && (
+                  <p className="text-foreground text-sm p-2">{message.caption}</p>
+                )}
               </div>
-              {message.caption && (
-                <p className="text-foreground text-sm p-2">{message.caption}</p>
-              )}
+              {/* Quick Actions for Videos */}
+              <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover/video:opacity-100 transition-opacity">
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleDownload(); }}
+                  className="p-2 bg-black/60 hover:bg-black/80 rounded-full backdrop-blur-sm"
+                  title="Download"
+                >
+                  <Download className="w-4 h-4 text-white" />
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleForward(); }}
+                  className="p-2 bg-black/60 hover:bg-black/80 rounded-full backdrop-blur-sm"
+                  title="Forward"
+                >
+                  <Forward className="w-4 h-4 text-white" />
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleShare(); }}
+                  className="p-2 bg-black/60 hover:bg-black/80 rounded-full backdrop-blur-sm"
+                  title="Share"
+                >
+                  <Share2 className="w-4 h-4 text-white" />
+                </button>
+              </div>
             </div>
           )}
 
