@@ -252,22 +252,37 @@ export const AddContactDialog = ({ open, onOpenChange, onContactAdded }: AddCont
         duration: 3000,
       });
       
-      // Wait a bit for the user to see the success message
-      await new Promise(resolve => setTimeout(resolve, 300));
+      console.log('Contact save completed successfully');
       
       if (foundUser) {
         onContactAdded?.(foundUser);
       }
       
-      // Close dialog and reset form
+      // Reset saving state and form
+      setIsSaving(false);
       resetForm();
-      onOpenChange(false);
+      
+      // Small delay to show success, then close
+      setTimeout(() => {
+        onOpenChange(false);
+      }, 500);
       
     } catch (error: any) {
       console.error('Error saving contact:', error);
+      
+      let errorDescription = 'An error occurred. Please try again.';
+      
+      if (error?.code === 'permission-denied') {
+        errorDescription = 'Permission denied. Please check your account settings.';
+      } else if (error?.code === 'unavailable') {
+        errorDescription = 'Network error. Please check your internet connection.';
+      } else if (error?.message) {
+        errorDescription = error.message;
+      }
+      
       toast({ 
         title: 'Failed to save contact', 
-        description: error?.message || 'An error occurred. Please try again.',
+        description: errorDescription,
         variant: 'destructive',
         duration: 5000,
       });
