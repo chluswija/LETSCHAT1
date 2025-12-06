@@ -47,8 +47,11 @@ export const MessageBubble = ({ message, isOwn, showAvatar, user, chatId }: Mess
   const [showMediaPreview, setShowMediaPreview] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [showForwardDialog, setShowForwardDialog] = useState(false);
+  const [showReactions, setShowReactions] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  const quickReactions = ['❤️', '👍', '😂', '😮', '😢', '🙏'];
 
   const getStatusIcon = () => {
     switch (message.status) {
@@ -128,6 +131,75 @@ export const MessageBubble = ({ message, isOwn, showAvatar, user, chatId }: Mess
     }
   };
 
+  const handleReaction = async (emoji: string) => {
+    if (!chatId) return;
+    try {
+      const messageRef = doc(db, 'chats', chatId, 'messages', message.id);
+      const currentReactions = message.reactions || {};
+      const userId = 'current-user-id'; // Get from auth context
+      
+      // Toggle reaction
+      if (currentReactions[userId] === emoji) {
+        delete currentReactions[userId];
+      } else {
+        currentReactions[userId] = emoji;
+      }
+      
+      await updateDoc(messageRef, { reactions: currentReactions });
+      setShowReactions(false);
+    } catch (error) {
+      console.error('Error adding reaction:', error);
+      toast({ title: 'Error', description: 'Could not add reaction', variant: 'destructive' });
+    }
+  };
+
+  const handleReply = () => {
+    // This will be handled by parent component
+    toast({ title: 'Reply', description: 'Reply feature will open in input' });
+  };
+
+  const handleStar = async () => {
+    if (!chatId) return;
+    try {
+      const messageRef = doc(db, 'chats', chatId, 'messages', message.id);
+      const starred = message.starred || [];
+      const userId = 'current-user-id'; // Get from auth context
+      
+      if (starred.includes(userId)) {
+        await updateDoc(messageRef, { 
+          starred: starred.filter(id => id !== userId) 
+        });
+        toast({ title: 'Unstarred', description: 'Message removed from starred' });
+      } else {
+        await updateDoc(messageRef, { 
+          starred: [...starred, userId] 
+        });
+        toast({ title: 'Starred', description: 'Message added to starred' });
+      }
+    } catch (error) {
+      console.error('Error starring message:', error);
+      toast({ title: 'Error', description: 'Could not star message', variant: 'destructive' });
+    }
+  };
+
+  const handleDeleteForEveryone = async () => {
+    if (!chatId) return;
+    const confirmed = window.confirm('Delete this message for everyone?');
+    if (!confirmed) return;
+    
+    try {
+      const messageRef = doc(db, 'chats', chatId, 'messages', message.id);
+      await updateDoc(messageRef, { 
+        deletedForEveryone: true,
+        content: 'This message was deleted'
+      });
+      toast({ title: 'Deleted', description: 'Message deleted for everyone' });
+    } catch (error) {
+      console.error('Error deleting message:', error);
+      toast({ title: 'Error', description: 'Could not delete message', variant: 'destructive' });
+    }
+  };
+
   const toggleAudioPlay = () => {
     if (audioRef.current) {
       if (isPlaying) {
@@ -171,31 +243,45 @@ export const MessageBubble = ({ message, isOwn, showAvatar, user, chatId }: Mess
                 <MoreVertical className="w-4 h-4 text-muted-foreground" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align={isOwn ? 'end' : 'start'}>
-              <DropdownMenuItem onClick={handleCopyMessage} className="gap-2">
-                <Copy className="w-4 h-4" />
-                Copy
-              </DropdownMenuItem>
-              <DropdownMenuItem className="gap-2">
+            <DropdownMenuContent align={isOwn ? 'end' : 'start'} className="w-48">
+              <DropdownMenuItem onClick={handleReply} className="gap-2">
                 <Reply className="w-4 h-4" />
                 Reply
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setShowReactions(true)} className="gap-2">
+                <span className="text-base">😊</span>
+                React
               </DropdownMenuItem>
               <DropdownMenuItem onClick={handleForward} className="gap-2">
                 <Forward className="w-4 h-4" />
                 Forward
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleShare} className="gap-2">
-                <Share2 className="w-4 h-4" />
-                Share
+              <DropdownMenuItem onClick={handleStar} className="gap-2">
+                <Star className={cn(
+                  "w-4 h-4",
+                  message.starred?.includes('current-user-id') && "fill-yellow-500 text-yellow-500"
+                )} />
+                {message.starred?.includes('current-user-id') ? 'Unstar' : 'Star'}
               </DropdownMenuItem>
-              <DropdownMenuItem className="gap-2">
-                <Star className="w-4 h-4" />
-                Star
+              <DropdownMenuItem onClick={handleCopyMessage} className="gap-2">
+                <Copy className="w-4 h-4" />
+                Copy
               </DropdownMenuItem>
               {message.mediaUrl && (
                 <DropdownMenuItem onClick={handleDownload} className="gap-2">
                   <Download className="w-4 h-4" />
                   Download
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onClick={handleShare} className="gap-2">
+                <Share2 className="w-4 h-4" />
+                Share
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              {isOwn && (
+                <DropdownMenuItem onClick={handleDeleteForEveryone} className="gap-2 text-destructive">
+                  <Trash2 className="w-4 h-4" />
+                  Delete for everyone
                 </DropdownMenuItem>
               )}
               {isOwn && (
@@ -220,15 +306,49 @@ export const MessageBubble = ({ message, isOwn, showAvatar, user, chatId }: Mess
               : 'message-bubble-received bg-chat-bubble-received'
           )}
         >
+          {/* Reply Preview */}
+          {message.replyTo && (
+            <div className={cn(
+              'mb-2 pl-2 border-l-4 py-1 rounded-sm',
+              isOwn ? 'border-l-white/40 bg-black/10' : 'border-l-primary/60 bg-primary/10'
+            )}>
+              <p className="text-xs font-semibold text-primary">
+                {message.replyTo.senderId === message.senderId ? 'You' : user?.displayName || 'User'}
+              </p>
+              <p className="text-xs text-muted-foreground truncate">
+                {message.replyTo.type === 'text' 
+                  ? message.replyTo.content 
+                  : `📎 ${message.replyTo.type}`
+                }
+              </p>
+            </div>
+          )}
+
+          {/* Deleted Message */}
+          {message.deletedForEveryone && (
+            <div className="flex items-center gap-2 text-muted-foreground italic text-sm py-1">
+              <Trash2 className="w-3 h-3" />
+              <span>This message was deleted</span>
+            </div>
+          )}
+
           {/* System message */}
-          {message.type === 'system' && (
+          {!message.deletedForEveryone && message.type === 'system' && (
             <div className="text-center px-4 py-2 bg-muted/50 rounded-lg text-xs text-muted-foreground">
               {message.content}
             </div>
           )}
 
+          {/* Forwarded indicator */}
+          {message.forwarded && !message.deletedForEveryone && (
+            <div className="flex items-center gap-1 text-muted-foreground text-xs mb-1">
+              <Forward className="w-3 h-3" />
+              <span className="italic">Forwarded</span>
+            </div>
+          )}
+
           {/* Text message */}
-          {message.type === 'text' && (
+          {!message.deletedForEveryone && message.type === 'text' && (
             <p className="text-foreground text-sm whitespace-pre-wrap break-words">
               {message.content}
             </p>
@@ -409,14 +529,53 @@ export const MessageBubble = ({ message, isOwn, showAvatar, user, chatId }: Mess
           )}
         </div>
 
-        {/* Reactions */}
+        {/* Reaction Picker */}
+        {showReactions && (
+          <>
+            <div 
+              className="fixed inset-0 z-40" 
+              onClick={() => setShowReactions(false)}
+            />
+            <div className={cn(
+              'absolute z-50 bg-card rounded-full shadow-lg border border-border p-2 flex items-center gap-1',
+              isOwn ? 'bottom-full right-0 mb-2' : 'bottom-full left-0 mb-2'
+            )}>
+              {quickReactions.map((emoji) => (
+                <button
+                  key={emoji}
+                  onClick={() => handleReaction(emoji)}
+                  className="hover:bg-muted rounded-full p-1.5 transition-colors text-xl hover:scale-125 transform transition-transform"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* Reactions Display */}
         {hasReactions && (
           <div className={cn(
-            'absolute -bottom-3 px-1.5 py-0.5 bg-card rounded-full shadow-sm border border-border flex items-center gap-0.5',
+            'absolute -bottom-3 px-1.5 py-0.5 bg-card rounded-full shadow-sm border border-border flex items-center gap-0.5 cursor-pointer hover:shadow-md transition-shadow',
             isOwn ? 'right-2' : 'left-2'
-          )}>
-            {Object.values(message.reactions || {}).map((emoji, i) => (
-              <span key={i} className="text-xs">{String(emoji)}</span>
+          )}
+          onClick={() => setShowReactions(true)}
+          >
+            {Object.entries(message.reactions || {}).reduce((acc, [userId, emoji]) => {
+              const existing = acc.find(item => item.emoji === emoji);
+              if (existing) {
+                existing.count++;
+              } else {
+                acc.push({ emoji, count: 1 });
+              }
+              return acc;
+            }, [] as Array<{emoji: string, count: number}>).map((reaction, i) => (
+              <span key={i} className="text-xs flex items-center gap-0.5">
+                {reaction.emoji}
+                {reaction.count > 1 && (
+                  <span className="text-[10px] text-muted-foreground">{reaction.count}</span>
+                )}
+              </span>
             ))}
           </div>
         )}
