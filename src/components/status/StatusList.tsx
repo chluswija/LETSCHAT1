@@ -186,11 +186,33 @@ export const StatusList = () => {
 
   return (
     <div className="h-full w-full flex flex-col relative">
-      {/* My Status */}
+      {/* User Profile Header */}
       <div className="p-4 border-b border-border bg-background">
-        <h2 className="text-sm font-semibold text-muted-foreground mb-3 px-2">MY STATUS</h2>
+        <div className="flex items-center gap-3 mb-4">
+          <Avatar className="h-16 w-16 ring-2 ring-primary/20">
+            <AvatarImage src={user?.photoURL || undefined} />
+            <AvatarFallback className="bg-primary/10 text-primary text-xl font-bold">
+              {user?.displayName?.charAt(0).toUpperCase()}
+            </AvatarFallback>
+          </Avatar>
+          <div className="flex-1 min-w-0">
+            <h2 className="font-semibold text-lg text-foreground truncate">
+              {user?.displayName || 'User'}
+            </h2>
+            <p className="text-sm text-muted-foreground truncate">
+              {user?.phone}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* My Status */}
+      <div className="border-b border-border bg-background">
+        <h3 className="px-6 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide bg-muted/30">
+          Status
+        </h3>
         <div 
-          className="flex items-center gap-3 cursor-pointer hover:bg-muted/50 p-2 rounded-lg transition-colors"
+          className="flex items-center gap-3 cursor-pointer hover:bg-muted/50 p-4 transition-colors"
           onClick={() => myStatuses.length > 0 
             ? setSelectedGroup({
                 userId: user!.uid,
